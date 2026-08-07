@@ -152,6 +152,10 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
             board = calc.parse_board_from_text(text, require_accept=False)
             if board is not None:
                 return _handle_board(admin, mid, text, board)
+        
+        # ดูยอดเจ้ามือเรียลไทม์ (แอดมินดูในห้องเล่นได้)
+        if admin and text.strip() in ("ยอดเจ้ามือ", "เจ้ามือ"):
+            return _handle_house_summary()
 
     # 4. คีย์ลัดทั่วไป (ถ้าไม่ตรงคำสั่งด้านบน และเป็นคีย์ที่ตั้งไว้)
     kw_messages = _keyword_reply(text, mid)
@@ -286,13 +290,16 @@ def _handle_bet(mid: int, line_user_id: str, text: str, bet: tuple, admin: bool)
     models.add_bet(mid, match_id, board_row["id"], side, amount, actual, full_cap)
     models.adjust_credit(mid, -actual)
     
-    # แจ้งเตือนตามกติกา
+    # แจ้งเตือนตามกติกา (ตามความต้องการของผู้ใช้)
     if actual < amount:
         if credit < amount and actual == credit:
+            # กรณีแทงเกินทุน
             msg = f"ติดเต็มจำนวน {actual:,.0f}"
         else:
+            # กรณีแทงเกินป้ายรับ
             msg = f"ติด {actual:,.0f}"
     else:
+        # กรณีแทงปกติ
         msg = f"ติด {actual:,.0f}"
         
     return [line_api.text_message(msg, line_user_id)]
