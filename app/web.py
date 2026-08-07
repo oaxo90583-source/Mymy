@@ -102,47 +102,34 @@ async def webhook(req: Request, x_line_signature: Optional[str] = Header(None)):
         return {"ok": True}
 
     for ev in payload.events:
-        logger.info("📩 ได้รับ Event: %s", ev.model_dump_json())
         if ev.type != "message" or not ev.message:
             continue
         msg = ev.message
         if msg.get("type") != "text":
-            logger.info("ℹ️ ข้ามข้อความที่ไม่ใช่ข้อความตัวหนังสือ (Type: %s)", msg.get("type"))
             continue
         
         user_id = ev.user_id
-        group_id = ev.group_id
         text_content = msg.get("text") or ""
-        logger.info("💬 ข้อความจาก [User: %s, Group: %s]: %s", user_id, group_id, text_content)
+        logger.info("💬 [%s]: %s", user_id[:8], text_content)
         
-        display = text_content[:40]
+        display = text_content[:20]
         try:
             prof = line_api.get_profile(user_id)
             display = prof.get("displayName", display)
-        except Exception as e:
-            logger.warning("⚠️ ไม่สามารถดึง Profile ของผู้ใช้ %s ได้: %s", user_id, e)
+        except Exception:
+            pass
             
         try:
             replies = bot.handle_message(user_id, display, text_content)
-            logger.info("🤖 ผลลัพธ์ข้อความตอบกลับที่สร้างสำหรับ %s: %s", user_id, replies)
         except Exception as e:
-            logger.error("🔥 เกิดข้อผิดพลาดใน bot.handle_message สำหรับ %s: %s", user_id, e, exc_info=True)
-            replies = [line_api.text_message("⚠️ เกิดข้อผิดพลาดในการประมวลผลคำสั่ง กรุณาลองใหม่อีกครั้ง")]
+            logger.error("🔥 Error: %s", e, exc_info=True)
+            replies = [line_api.text_message("⚠️ เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")]
 
-        # เข้าถึง replyToken จาก ev (ซึ่งเป็น _LINEEvent object)
-        reply_token = ev.replyToken
-        logger.info("🔍 กำลังตรวจสอบการส่งข้อความกลับ: replyToken=%s, replies_count=%d", reply_token, len(replies) if replies else 0)
-        
-        if reply_token and replies:
+        if ev.replyToken and replies:
             try:
-                resp = line_api.reply(reply_token, replies)
-                logger.info("📤 ส่งข้อความกลับ LINE สำเร็จ | Status: %s | Body: %s", resp.status_code, resp.text)
-                if resp.status_code != 200:
-                    logger.error("❌ LINE API ปฏิเสธการส่งข้อความ Status %d: %s | Token used: %s...", resp.status_code, resp.text, line_api.TOKEN[:10] if line_api.TOKEN else "None")
+                line_api.reply(ev.replyToken, replies)
             except Exception as e:
-                logger.error("🔥 เกิดข้อผิดพลาดขณะเรียก line_api.reply: %s", e, exc_info=True)
-        else:
-            logger.warning("⚠️ ไม่มีการส่งข้อความกลับเนื่องจาก: replyToken ว่าง หรือ ไม่มีข้อความตอบกลับ")
+                logger.error("🔥 Reply Error: %s", e)
                 
     return {"ok": True}
 
