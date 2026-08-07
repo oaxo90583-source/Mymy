@@ -191,7 +191,7 @@ def api_credit(payload: dict):
     return {"ok": True, "new_credit": models.get_member_credit(mid)}
 
 
-@app.get("/api/keywords", dependencies=[Depends(_keyword_reply := None) or Depends(_require_admin)])
+@app.get("/api/keywords", dependencies=[Depends(_require_admin)])
 def api_keywords():
     conn = models.get_conn()
     return [dict(r) for r in conn.execute("SELECT * FROM keywords ORDER BY id").fetchall()]
