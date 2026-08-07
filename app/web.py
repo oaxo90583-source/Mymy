@@ -1,0 +1,187 @@
+# -*- coding: utf-8 -*-
+"""
+app/web.py — FastAPI app:
+- POST /webhook      : LINE Messaging API webhook
+- GET  /             : พอร์ทแอดมิน (SPA)
+- GET  /api/*        : REST API สำหรับแอดมิน (ดู/แก้/สรุปผล)
+"""
+
+import os
+import hmac
+import hashlib
+import base64
+import logging
+from typing import Optional
+
+from fastapi import FastAPI, Request, Header, Depends, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
+
+from app import bot, models, line_api
+
+logger = logging.getLogger("muaythai_bot")
+
+app = FastAPI(title="บอทคำนวณมวยพักยก")
+
+
+@app.on_event("startup")
+async def _startup():
+    models.init_db()
+    if not models.count_keywords():
+        models.seed_keywords_from_json()
+        logger.info("seeded %d keywords", models.count_keywords())
+app.mount("/static", StaticFiles(directory=os.path.join(
+    os.path.dirname(os.path.dirname(__file__)), "webui")), name="static")
+
+CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
+
+
+
+# ---------- webhook ----------
+
+class _LINEEvent(BaseModel):
+    type: str
+    source: dict
+    message: Optional[dict] = None
+    postback: Optional[dict] = None
+
+
+class _LINEPayload(BaseModel):
+    events: list[_LINEEvent]
+
+
+def _verify_signature(body: bytes, signature: str) -> bool:
+    if not CHANNEL_SECRET or not signature:
+        return True  # dev mode: ไม่มี secret → ยอมตลอด
+    calc_sig = base64.b64encode(
+        hmac.new(CHANNEL_SECRET.encode(), body, hashlib.sha256).digest()).decode()
+    return hmac.compare_digest(calc_sig, signature)
+
+
+@app.post("/webhook")
+async def webhook(req: Request, x_line_signature: Optional[str] = Header(None)):
+    body = await req.body()
+    if not _verify_signature(body, x_line_signature or ""):
+        raise HTTPException(401, "signature mismatch")
+    payload = _LINEPayload.model_validate_json(body)
+    for ev in payload.events:
+        if ev.type != "message" or not ev.message:
+            continue
+        msg = ev.message
+        if msg.get("type") != "text":
+            continue
+        user_id = ev.source.get("userId", "")
+        display = (msg.get("text") or "")[:40]
+        try:
+            prof = line_api.get_profile(user_id)
+            display = prof.get("displayName", display)
+        except Exception:
+            pass
+        replies = bot.handle_message(user_id, display, msg.get("text") or "")
+        if msg.get("replyToken"):
+            try:
+                line_api.reply(msg["replyToken"], replies)
+            except Exception as e:
+                logger.error("reply failed: %s", e)
+    return {"ok": True}
+
+
+# ---------- admin pages ----------
+
+@app.get("/", response_class=HTMLResponse)
+def index():
+    return FileResponse(os.path.join(os.path.dirname(
+        os.path.dirname(__file__)), "webui", "index.html"))
+
+
+def _require_admin(x_admin_token: Optional[str] = Header(None)):
+    expected = os.environ.get("ADMIN_TOKEN", "muaythai-admin-dev")
+    if x_admin_token != expected:
+        raise HTTPException(403, "admin token ผิด")
+
+
+class _MatchIn(BaseModel):
+    name: str
+
+
+class _BetIn(BaseModel):
+    match_id: int
+    user_id: str
+    side: str
+    amount: float
+
+
+class _ResultIn(BaseModel):
+    match_id: int
+    winner: str
+    note: str = ""
+
+
+@app.get("/api/matches", dependencies=[Depends(_require_admin)])
+def api_matches(status: Optional[str] = None):
+    return models.list_matches(status)
+
+
+@app.post("/api/matches", dependencies=[Depends(_require_admin)])
+def api_new_match(m: _MatchIn):
+    return {"id": models.new_match(m.name)}
+
+
+@app.post("/api/matches/{match_id}/result", dependencies=[Depends(_require_admin)])
+def api_set_result(match_id: int, r: _ResultIn):
+    models.set_result(match_id, r.winner, r.note)
+    rows = models.settle_match(match_id)
+    return {"settled": rows, "total_payout": sum(x["payout"] for x in rows)}
+
+
+@app.get("/api/bets", dependencies=[Depends(_require_admin)])
+def api_bets(match_id: Optional[int] = None):
+    return models.list_bets(match_id)
+
+
+@app.get("/api/members", dependencies=[Depends(_require_admin)])
+def api_members():
+    return models.list_members()
+
+
+@app.post("/api/credit", dependencies=[Depends(_require_admin)])
+def api_credit(payload: dict):
+    """{user_id, kind: ฝาก|ถอน|เติม, amount}"""
+    kind = payload.get("kind", "เติม")
+    amount = float(payload.get("amount", 0))
+    if amount <= 0 or kind not in ("ฝาก", "ถอน", "เติม"):
+        raise HTTPException(400, "ข้อมูลไม่ถูกต้อง")
+    mid = models.find_member(payload.get("user_id", ""))
+    if not mid:
+        mid = models.new_member(payload.get("user_id", ""))
+    sign = 1 if kind in ("ฝาก", "เติม") else -1
+    if kind == "ถอน" and models.get_member_credit(mid) < amount:
+        raise HTTPException(400, "เครดิตไม่พอ")
+    models.adjust_credit(mid, sign * amount)
+    models.add_txn(mid, kind, amount, note=payload.get("note", ""))
+    return {"ok": True, "new_credit": models.get_member_credit(mid)}
+
+
+@app.get("/api/keywords", dependencies=[Depends(_require_admin)])
+def api_keywords():
+    conn = models.get_conn()
+    return [dict(r) for r in conn.execute("SELECT * FROM keywords ORDER BY id").fetchall()]
+
+
+@app.get("/api/pool", dependencies=[Depends(_require_admin)])
+def api_pool(match_id: Optional[int] = None):
+    """ยอดรวมเจ้ามือ (รวมบิลที่ติด) จำลอง: ผลลบ = เจ้ามือต้องจ่าย, บวก = เจ้ามือกำไร"""
+    conn = models.get_conn()
+    q = ("SELECT b.match_id, b.side, SUM(b.actual) AS total, "
+         "pb.red_pay, pb.red_win, pb.blue_pay, pb.blue_win, m.status "
+         "FROM bets b JOIN price_boards pb ON pb.id=b.board_id "
+         "JOIN matches m ON m.id=b.match_id "
+         "WHERE b.status='ติด'")
+    params = []
+    if match_id:
+        q += " AND b.match_id=?"
+        params.append(match_id)
+    q += " GROUP BY b.match_id, b.side"
+    rows = conn.execute(q, params).fetchall()
+    return [dict(r) for r in rows]

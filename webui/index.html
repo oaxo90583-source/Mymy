@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>บอทมวยพักยก — พอร์ตแอดมิน</title>
+<style>
+  :root{--bg:#0d1220;--card:#161d31;--accent:#4f8cff;--red:#e34545;--blue:#3f8ef5;--text:#e8edf8;--muted:#8b97ad}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Sarabun',system-ui,sans-serif;background:var(--bg);color:var(--text)}
+  header{display:flex;justify-content:space-between;align-items:center;padding:14px 22px;background:var(--card);border-bottom:1px solid #24304f}
+  header h1{margin:0;font-size:18px}
+  main{padding:18px 22px;max-width:1200px;margin:0 auto}
+  .tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+  .tabs button{background:var(--card);border:1px solid #24304f;color:var(--text);padding:8px 16px;border-radius:8px;cursor:pointer}
+  .tabs button.active{background:var(--accent);border-color:var(--accent)}
+  section{display:none}
+  section.active{display:block}
+  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:10px;overflow:hidden;font-size:14px}
+  th,td{padding:9px 12px;text-align:left;border-bottom:1px solid #24304f}
+  th{background:#1c2540;color:var(--muted);font-weight:600}
+  .chip{display:inline-block;padding:2px 8px;border-radius:12px;font-size:12px}
+  .chip.open{background:#1b4332;color:#7de0a8}.chip.closed{background:#44362c;color:#f0c36f}
+  .chip.settled{background:#2a2340;color:#b9a8ff}.chip.cancelled{background:#3a2424;color:#ff8f8f}
+  .btn{background:var(--accent);color:#fff;border:none;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px}
+  .btn.warn{background:var(--red)}.btn.small{padding:4px 10px;font-size:12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px}
+  .stat{background:var(--card);border-radius:10px;padding:14px 18px}
+  .stat .v{font-size:24px;font-weight:700;color:var(--accent)}
+  .stat .k{color:var(--muted);font-size:12px}
+  .dialog{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50}
+  .dialog.show{display:flex}
+  .dialog .box{background:var(--card);border-radius:12px;padding:22px;min-width:320px;max-width:90vw}
+  input,select{background:#0d1220;border:1px solid #24304f;color:var(--text);padding:8px 10px;border-radius:8px;width:100%;margin:6px 0;font-size:14px}
+  label{color:var(--muted);font-size:12px}
+  .toast{position:fixed;bottom:18px;right:18px;background:#1b4332;color:#c8f0d4;padding:10px 16px;border-radius:8px;display:none;z-index:100}
+  .toast.show{display:block}
+</style>
+</head>
+<body>
+<header>
+  <h1>🥊 บอทมวยพักยก — พอร์ตแอดมิน</h1>
+  <button class="btn small" id="logoutBtn">ออก</button>
+</header>
+<main>
+  <div class="tabs">
+    <button data-tab="matches" class="active">คู่แข่งขัน</button>
+    <button data-tab="pool">ยอดรวมเจ้ามือ</button>
+    <button data-tab="members">สมาชิก/เครดิต</button>
+    <button data-tab="bets">บิลแทง</button>
+    <button data-tab="keywords">คีย์ลัด 206</button>
+  </div>
+
+  <section id="matches" class="active">
+    <div class="grid">
+      <div class="stat"><div class="k">คู่เปิดอยู่</div><div class="v" id="openCount">0</div></div>
+      <div class="stat"><div class="k">บิลที่ติดรวม</div><div class="v" id="totalBets">0</div></div>
+    </div>
+    <button class="btn" onclick="showNewMatch()">+ เปิดคู่ใหม่</button>
+    <table id="matchTable"><thead><tr><th>#</th><th>ชื่อคู่</th><th>สถานะ</th><th>ผลลัพธ์</th><th>การกระทำ</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="pool">
+    <p style="color:var(--muted)">ยอดรวมที่สมาชิกแทงจริงต่อคู่/ต่อมุม (ใช้คำนวณความเสี่ยงเจ้ามือ)</p>
+    <table id="poolTable"><thead><tr><th># คู่</th><th>มุม</th><th>ราคา(แทง/ได้)</th><th>ยอดติดรวม</th><th>เสียสูงสุด(เจ้ามือ)</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="members">
+    <button class="btn" onclick="showCredit()">+ ฝาก/ถอน/เติมเครดิต</button>
+    <table id="memberTable"><thead><tr><th>ID</th><th>ชื่อ</th><th>เครดิตคงเหลือ</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="bets">
+    <table id="betTable"><thead><tr><th>วันเวลา</th><th>สมาชิก</th><th># คู่</th><th>มุม</th><th>จำนวน</th><th>ติดจริง</th><th>สถานะ</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="keywords">
+    <p style="color:var(--muted)">คีย์ลัด 206 รายการจาก LINE OA — แก้ไขได้ที่นี่</p>
+    <input id="kwSearch" placeholder="ค้นหาคีย์ลัด..." oninput="renderKeywords()">
+    <table id="kwTable"><thead><tr><th>หัวข้อ</th><th>คีย์เวิร์ด</th><th>ประเภท</th><th>คำตอบ</th></tr></thead><tbody></tbody></table>
+  </section>
+</main>
+
+<div class="dialog" id="dlg">
+  <div class="box" id="dlgBox"></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const TOKEN = (localStorage.getItem('adminToken') || 'muaythai-admin-dev');
+const H = {'X-Admin-Token': TOKEN};
+const $ = s => document.querySelector(s);
+
+document.querySelectorAll('.tabs button').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('.tabs button').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('section').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById(b.dataset.tab).classList.add('active');
+    loadTab(b.dataset.tab);
+  };
+});
+$('#logoutBtn').onclick = () => {
+  const t = prompt('Token แอดมิน:', TOKEN);
+  if (t) { localStorage.setItem('adminToken', t); location.reload(); }
+};
+
+function toast(msg){ const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 2500); }
+function closeDlg(){ $('#dlg').classList.remove('show'); }
+$('#dlg').onclick = e => { if(e.target === $('#dlg')) closeDlg(); };
+function dialog(html){ $('#dlgBox').innerHTML = html; $('#dlg').classList.add('show'); }
+
+async function get(path){ const r = await fetch('/api'+path, {headers: H}); if(!r.ok) throw new Error(await r.text()); return r.json(); }
+async function post(path, body){ const r = await fetch('/api'+path, {method:'POST', headers:{...H,'Content-Type':'application/json'}, body: JSON.stringify(body)}); return r.json(); }
+
+function fmt(n){ return Number(n||0).toLocaleString('th-TH'); }
+
+function loadTab(tab){
+  if(tab==='matches') loadMatches();
+  if(tab==='pool') loadPool();
+  if(tab==='members') loadMembers();
+  if(tab==='bets') loadBets();
+  if(tab==='keywords') loadKeywords();
+}
+
+async function loadMatches(){
+  const rows = await get('/matches');
+  const bets = await get('/bets');
+  $('#openCount').textContent = rows.filter(r=>r.status==='open').length;
+  $('#totalBets').textContent = bets.length;
+  $('#matchTable tbody').innerHTML = rows.map(r => `
+    <tr><td>${r.id}</td><td>${r.name}</td>
+    <td><span class="chip ${r.status==='open'?'open':r.status==='settled'?'settled':r.status==='cancelled'?'cancelled':'closed'}">${r.status}</span></td>
+    <td>${['j','jng','samoe'].map(w => `<button class="btn small" onclick="setResult(${r.id},'${w==='j'?'แดง':w==='jng'?'เงิน':'เสมอ'}')">${w==='j'?'แดงชนะ':w==='jng'?'เงินชนะ':'เสมอ'}</button>`).join(' ')}
+        <button class="btn small warn" onclick="setResult(${r.id},'ยกเลิก')">ยกเลิกคู่</button></td>
+    <td></td></tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">ยังไม่มีคู่</td></tr>';
+}
+
+async function setResult(id, winner){
+  if(!confirm(`ประกาศผล: ${winner} (จะคำนวณบิลทั้งหมด)?`)) return;
+  const res = await post(`/matches/${id}/result`, {match_id: id, winner});
+  toast(`สรุปผลแล้ว — จ่ายรวม ${fmt(res.total_payout)}`);
+  loadMatches();
+}
+
+function showNewMatch(){
+  dialog(`<label>ชื่อคู่</label><input id="nm" placeholder="คู่ที่ 1 / คู่เอก">
+    <button class="btn" onclick="(async()=>{await post('/matches',{name:document.getElementById('nm').value});closeDlg();loadMatches();toast('เปิดคู่แล้ว')})()">บันทึก</button>`);
+}
+
+async function loadPool(){
+  const rows = await get('/pool');
+  $('#poolTable tbody').innerHTML = rows.map(r => {
+    const pay = r.red_pay || r.blue_pay, win = r.red_win || r.blue_win;
+    const maxLoss = r.total * (win/pay);
+    return `<tr><td>${r.match_id}</td><td>${r.side}</td><td>${fmt(pay)}/${fmt(win)}</td><td>${fmt(r.total)}</td><td style="color:${maxLoss>0?'#ff8f8f':''}">${fmt(maxLoss)}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">ยังไม่มีบิล</td></tr>';
+}
+
+async function loadMembers(){
+  const rows = await get('/members');
+  $('#memberTable tbody').innerHTML = rows.map(r =>
+    `<tr><td>${r.line_user_id.slice(0,10)}...</td><td>${r.display_name}</td><td>${fmt(r.credit)}</td></tr>`
+  ).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--muted)">ยังไม่มีสมาชิก</td></tr>';
+}
+
+function showCredit(){
+  dialog(`<label>LINE User ID</label><input id="uid" placeholder="U000...">
+    <label>ประเภท</label><select id="kind"><option>เติม</option><option>ฝาก</option><option>ถอน</option></select>
+    <label>จำนวน</label><input id="amt" type="number" placeholder="1000">
+    <button class="btn" onclick="(async()=>{const res=await post('/credit',{user_id:document.getElementById('uid').value,kind:document.getElementById('kind').value,amount:+document.getElementById('amt').value});closeDlg();toast('เครดิตใหม่: '+res.new_credit.toLocaleString('th-TH'));loadMembers()})()">บันทึก</button>`);
+}
+
+async function loadBets(){
+  const rows = await get('/bets');
+  $('#betTable tbody').innerHTML = rows.map(r =>
+    `<tr><td>${r.created_at||''}</td><td>${r.member_id}</td><td>${r.match_id}</td><td>${r.side}</td><td>${fmt(r.amount)}</td><td>${fmt(r.actual)}</td><td>${r.status}</td></tr>`
+  ).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--muted)">ยังไม่มีบิล</td></tr>';
+}
+
+async function loadKeywords(){
+  const rows = await get('/keywords');
+  window.__kw = rows;
+  renderKeywords();
+}
+function renderKeywords(){
+  const q = ($('#kwSearch').value||'').toLowerCase();
+  const rows = (window.__kw||[]).filter(r =>
+    (r.title||'').toLowerCase().includes(q) || (r.keywords||'').toLowerCase().includes(q));
+  $('#kwTable tbody').innerHTML = rows.map(r =>
+    `<tr><td>${r.title}</td><td style="max-width:220px;font-size:12px">${(r.keywords||'').slice(0,80)}</td><td>${r.response_type}</td><td style="max-width:400px;font-size:12px">${(r.response||r.media_key||'').slice(0,60)}</td></tr>`
+  ).join('');
+}
+
+loadTab('matches');
+</script>
+</body>
+</html>
