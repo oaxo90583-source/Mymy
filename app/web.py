@@ -34,10 +34,21 @@ async def _startup():
     logger.info("Current keywords count: %d", count)
     if count == 0:
         logger.info("Database is empty, starting seed process...")
-        # ระบุพาธไฟล์ให้ชัดเจนเพื่อให้แน่ใจว่าหาไฟล์เจอ
         json_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets_keywords.json")
         n = models.seed_keywords_from_json(json_path)
         logger.info("Successfully seeded %d keywords from %s", n, json_path)
+    
+    # เพิ่ม/อัปเดตคีย์เวิร์ดสำคัญจากรูปภาพเพื่อให้บอทพร้อมใช้งานทันที
+    important_kws = [
+        {"t": "f23", "k": "f23", "r": "🔵ง 23/1  ด 14/1\nรับ3000"},
+        {"t": "ด21_กลางอากาศ", "k": "ด21", "r": "กลางอากาศ\n🔴ด 21  ง 32\nรับ4000"},
+        {"t": "d21_ปกติ", "k": "d21", "r": "🔴🔴🔴🔴\nด 21  ง 53\nรับ20000"},
+        {"t": "d41_ปกติ", "k": "d41", "r": "🔴🔴🔴🔴\nด 41  ง 52\nรับ20000"},
+        {"t": "ด41_กลางอากาศ", "k": "ด41", "r": "กลางอากาศ\n🔴ด 41  ง 21\nรับ4000"}
+    ]
+    for kw in important_kws:
+        models.add_keyword(kw["t"], kw["k"], kw["r"])
+    logger.info("Updated important screenshot keywords")
 
 app.mount("/static", StaticFiles(directory=os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "webui")), name="static")
