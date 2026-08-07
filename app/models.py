@@ -277,8 +277,12 @@ def settle_match(match_id: int) -> list:
                 result, note = "ชนะ", f"ได้ {payout:,.2f} (รวมคืนต้น {payout + float(b['actual']):,.2f})"
                 adjust_credit(b["member_id"], float(b["actual"]) + payout)
             else:
-                payout, result = 0.0, "แพ้"
-                note = f"เสีย {float(b['actual']):,.2f}"
+                # กฎมวยพักยก: แพ้เสียครึ่ง (คืนต้น 50%)
+                loss_amt = float(b["actual"]) / 2.0
+                payout = 0.0
+                result = "แพ้ (เสียครึ่ง)"
+                note = f"เสียครึ่ง {loss_amt:,.2f} (คืนต้น {loss_amt:,.2f})"
+                adjust_credit(b["member_id"], loss_amt)
         conn.execute("INSERT INTO settle_log(bet_id, payout, result, note) VALUES(?,?,?,?)",
                      (b["id"], payout, result, note))
         out.append(dict(bet_id=b["id"], side=b["side"], actual=float(b["actual"]),
@@ -354,26 +358,6 @@ def seed_keywords_from_json(json_path: Optional[str] = None) -> int:
             n += 1
     conn.commit()
     return n
-
-def update_keyword(kw_id: int, title: str, keywords: str, response: str) -> None:
-    conn = get_conn()
-    conn.execute("UPDATE keywords SET title=?, keywords=?, response=? WHERE id=?",
-                 (title, keywords, response, kw_id))
-    conn.commit()
-
-def delete_keyword(kw_id: int) -> None:
-    conn = get_conn()
-    conn.execute("DELETE FROM keywords WHERE id=?", (kw_id,))
-    conn.commit()
-
-def add_keyword(title: str, keywords: str, response: str) -> int:
-    conn = get_conn()
-    import uuid
-    item_id = str(uuid.uuid4())
-    cur = conn.execute("INSERT INTO keywords(item_id, title, keywords, response) VALUES(?,?,?,?)",
-                       (item_id, title, keywords, response))
-    conn.commit()
-    return cur.lastrowid
 
 def update_keyword(kw_id: int, title: str, keywords: str, response: str) -> None:
     conn = get_conn()

@@ -31,9 +31,8 @@ class Price:
         - ด 52: แทง 52 ได้ 1 → แทง x ได้ x/52
         - ง 10/9: แทง 9 ได้ 10 → แทง x ได้ x*10/9
         """
-        # สูตรเดียวกัน: กำไร = แทง x (win/pay)
-        # - ด 52: แทง 52 ได้ 1 → 520 → 10
-        # - ง 10/9: แทง 9 ได้ 10 → 900 → 1000
+        if self.pay_num == 0:
+            raise ValueError("ราคา pay_num ไม่สามารถเป็น 0 ได้")
         return stake * self.win_num / self.pay_num
 
     def __repr__(self):
@@ -308,7 +307,7 @@ def check_bet_limit(stake: float, member_credit: float, pool: float) -> Tuple[fl
         if limit <= 0:
             return 0.0, False, "ไม่ติด"
         return limit, True, f"ติดเต็มจำนวน {int(limit)}"
-    return stake, False, f"ติด {int(stake)}"
+    return stake, True, f"ติด {int(stake)}"
 
 
 def settle(board: PriceBoard, winner: str, bets: list) -> list:
