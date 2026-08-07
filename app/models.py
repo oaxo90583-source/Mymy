@@ -381,17 +381,25 @@ def settle_match(match_id: int) -> list:
                 board = conn.execute("SELECT * FROM price_boards WHERE id=?", (b["board_id"],)).fetchone()
                 pay = float(board["red_pay"] if b["side"] == "แดง" else board["blue_pay"])
                 win = float(board["red_win"] if b["side"] == "แดง" else board["blue_win"])
-                price = Price(b["side"], pay > win, pay, win)
-                payout = round(float(b["actual"]) * price.win_num / price.pay_num, 2)
+                
+                # ตัดสินว่าฝั่งที่แทงเป็นต่อหรือรองในบอร์ดนั้น
+                # ราคาที่น้อยกว่าคือฝั่งต่อ
+                red_val = float(board["red_pay"])
+                blue_val = float(board["blue_pay"])
+                is_fav = (pay <= min(red_val, blue_val))
+                
+                price = Price(b["side"], is_fav, pay, win)
+                payout = round(price.payout(float(b["actual"])), 2)
+                
                 result, note = "ชนะ", f"ได้ {payout:,.2f} (รวมคืนต้น {payout + float(b['actual']):,.2f})"
                 adjust_credit(b["member_id"], float(b["actual"]) + payout)
             else:
-                # กฎมวยพักยก: แพ้เสียครึ่ง (คืนต้น 50%)
-                loss_amt = float(b["actual"]) / 2.0
+                # กฎมวยพักยก: แพ้เสียเต็ม (ตามที่ระบุในรายละเอียดล่าสุด)
                 payout = 0.0
-                result = "แพ้ (เสียครึ่ง)"
-                note = f"เสียครึ่ง {loss_amt:,.2f} (คืนต้น {loss_amt:,.2f})"
-                adjust_credit(b["member_id"], loss_amt)
+                result = "แพ้"
+                note = f"เสียเต็ม {float(b['actual']):,.2f}"
+                # ไม่มีการคืนยอดเครดิตในกรณีแพ้เสียเต็ม เพราะหักไปตอนแทงแล้ว
+                pass
         conn.execute("INSERT INTO settle_log(bet_id, payout, result, note) VALUES(?,?,?,?)",
                      (b["id"], payout, result, note))
         out.append(dict(bet_id=b["id"], side=b["side"], actual=float(b["actual"]),
@@ -572,8 +580,8 @@ def get_daily_summary(date_str: Optional[str] = None) -> dict:
             # สมาชิกชนะ เจ้ามือเสีย payout
             house_profit -= float(b["payout"])
         elif "แพ้" in b["result"]:
-            # สมาชิกแพ้เสียครึ่ง เจ้ามือได้กำไร actual/2
-            house_profit += (float(b["actual"]) / 2.0)
+            # สมาชิกแพ้เสียเต็ม เจ้ามือได้กำไรเท่ากับยอดแทง (actual)
+            house_profit += float(b["actual"])
             
     # 4. ยอดฝาก/ถอน/เติม วันนี้
     txns = conn.execute(

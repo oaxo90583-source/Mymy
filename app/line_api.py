@@ -26,8 +26,25 @@ def push(user_id: str, messages: list, token: str = "") -> requests.Response:
                          json={"to": user_id, "messages": messages}, timeout=20)
 
 
-def text_message(t: str):
-    return {"type": "text", "text": t}
+def text_message(t: str, user_id: str = None):
+    if not user_id:
+        return {"type": "text", "text": t}
+    
+    # รูปแบบ Mention ของ LINE: ใส่ @[name] ใน text และระบุ mentionee
+    # ในที่นี้เราจะใส่ @ ที่หน้าข้อความ
+    return {
+        "type": "text",
+        "text": f"@{t}",
+        "mention": {
+            "mentionees": [
+                {
+                    "index": 0,
+                    "length": 1, # ความยาวของ @
+                    "userId": user_id
+                }
+            ]
+        }
+    }
 
 
 def image_message(url: str, preview_url: str = ""):

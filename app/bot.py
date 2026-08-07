@@ -57,21 +57,25 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
     mid = ensure_member(user_id, display_name)
     room_type = models.get_room_type(room_id) if room_id else "private"
 
+    # ฟังก์ชันช่วยสร้างข้อความพร้อม Mention
+    def reply_text(t, mention=False):
+        return line_api.text_message(t, user_id if mention else None)
+
     # ===== 0. คำสั่งตั้งค่าห้อง (เฉพาะแอดมิน) =====
     if admin and room_id:
         # เช็คไอดีกลุ่ม (gid)
         if text.lower() in ("gid", "ไอดีกลุ่ม"):
-            return [line_api.text_message(f"🆔 Group ID: {room_id}")]
+            return [reply_text(f"🆔 Group ID: {room_id}")]
 
         if text == "ตั้งห้องเล่น":
             models.set_room_type(room_id, "play", "ห้องสำหรับสมาชิกแทง")
-            return [line_api.text_message("✅ ตั้งค่าเป็น [ห้องเล่น] เรียบร้อย\n(รับเฉพาะคำสั่งแทง/ดูราคา)")]
+            return [reply_text("✅ ตั้งค่าเป็น [ห้องเล่น] เรียบร้อย\n(รับเฉพาะคำสั่งแทง/ดูราคา)")]
         if text == "ตั้งห้องฝากถอน":
             models.set_room_type(room_id, "finance", "ห้องสำหรับจัดการเงิน")
-            return [line_api.text_message("✅ ตั้งค่าเป็น [ห้องฝากถอน] เรียบร้อย\n(รับเฉพาะคำสั่งฝาก/ถอน/เติม/c/cc)")]
+            return [reply_text("✅ ตั้งค่าเป็น [ห้องฝากถอน] เรียบร้อย\n(รับเฉพาะคำสั่งฝาก/ถอน/เติม/c/cc)")]
         if text == "ตั้งห้องแอดมิน":
             models.set_room_type(room_id, "admin", "ห้องสำหรับคุมบอร์ด")
-            return [line_api.text_message("✅ ตั้งค่าเป็น [ห้องแอดมิน] เรียบร้อย\n(คุมบอร์ด/ประกาศผล/สรุปยอด/ทวน)")]
+            return [reply_text("✅ ตั้งค่าเป็น [ห้องแอดมิน] เรียบร้อย\n(คุมบอร์ด/ประกาศผล/สรุปยอด/ทวน)")]
 
     # ===== 1. ห้องฝากถอน (Finance Room) / ส่วนตัว (Private) =====
     if room_type in ("finance", "private"):
@@ -79,46 +83,28 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
         if text.lower() in ("id", "ไอดี"):
             m = models.get_member_info(mid)
             code = m["member_code"] if m else "N/A"
-            return [line_api.text_message(f"🆔 ข้อมูลสมาชิกของคุณ\n👤 ชื่อ: {m['display_name']}\n🔢 รหัสลูกค้า: {code}")]
+            return [reply_text(f"🆔 ข้อมูลสมาชิกของคุณ\n👤 ชื่อ: {m['display_name']}\n🔢 รหัสลูกค้า: {code}")]
 
         # เช็คเครดิต (c)
         if text.lower() == "c":
             m = models.get_member_info(mid)
             code = m["member_code"] if m else "N/A"
-            return [line_api.text_message(f"👤 {m['display_name']} ({code})\n💰 เครดิตคงเหลือ: {m['credit']:,.2f} บาท")]
+            return [reply_text(f"👤 {m['display_name']} ({code})\n💰 เครดิตคงเหลือ: {m['credit']:,.2f} บาท")]
         
         # ดูยอดได้เสียเรียลไทม์ (cc)
         if text.lower() == "cc":
-            return _handle_realtime_summary(mid)
+            return _handle_realtime_summary(mid, user_id)
             
         # คำสั่งจัดการเงิน (เฉพาะแอดมิน)
         if admin:
             m_adm = ADMIN_CMD.match(text)
             if m_adm:
                 kind, target, amount, _ = m_adm.group(1), m_adm.group(2), float(m_adm.group(3).replace(",", "")), m_adm.group(4)
-                return [line_api.text_message(admin_credit_cmd(user_id, kind, target, amount))]
-
-    # ===== 2. ห้องเล่น (Play Room) / ส่วนตัว (Private) =====
-    if room_type in ("play", "private"):
-        # แทงมวย (ด500, ง1000)
-        bet = calc.parse_bet(text)
-        if bet:
-            return _handle_bet(mid, text, bet, admin)
-        
-        # แอดมินเปิดราคา (คีย์ลัดราคา)
-        if admin:
-            board = calc.parse_board_from_text(text, require_accept=False)
-            if board is not None:
-                return _handle_board(admin, mid, text, board)
+                return [reply_text(admin_credit_cmd(user_id, kind, target, amount))]
 
     # ===== 3. ห้องแอดมิน (Admin Room) / ส่วนตัว (Private) =====
-    if admin and room_type in ("admin", "private"):
-        # ประกาศผล / ปิดรับ / สรุปรายวัน
-        m_res = RESULT_CMD.match(text)
-        if m_res:
-            cmd_check = m_res.group(1).strip().lower()
-            if cmd_check in ("dd", "ff", "sm", "เสมอ", "ล", "p", "เปิด", "ยก", "ยกเลิก", "ยุติ", "แก้ผล", "สรุปรายวัน"):
-                return _handle_result_cmd(text, m_res)
+    if admin and (room_type in ("admin", "private") or room_id is not None):
+        # ตรวจสอบคำสั่งแอดมินก่อน เพื่อไม่ให้ถูก parse เป็นราคาเปิดมวย
         
         # ทวนผลรายคู่: ทวน[เลขคู่] [ชื่อ/รหัส]
         m_review = re.match(r"^(?:ทวน|ดูคู่)\s*(\d+)(?:\s+(.*))?$", text, re.I)
@@ -127,15 +113,22 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
             target_name = m_review.group(2)
             return _handle_review_bets(mid, match_no, target_name, admin)
 
+        # ประกาศผล / ปิดรับ / สรุปรายวัน
+        m_res = RESULT_CMD.match(text)
+        if m_res:
+            cmd_check = m_res.group(1).strip().lower()
+            if cmd_check in ("dd", "ff", "sm", "เสมอ", "ล", "p", "เปิด", "ยก", "ยกเลิก", "ยุติ", "แก้ผล", "สรุปรายวัน"):
+                return _handle_result_cmd(text, m_res)
+
         # เช็คไอดีลูกค้า (Admin Only): id [ชื่อ/รหัส]
         m_id_check = re.match(r"^(?:id|ไอดี)\s+(.+)$", text, re.I)
         if m_id_check:
             target = m_id_check.group(1)
             target_id = models.find_member(target)
             if not target_id:
-                return [line_api.text_message(f"❌ ไม่พบสมาชิก '{target}'")]
+                return [reply_text(f"❌ ไม่พบสมาชิก '{target}'")]
             m = models.get_member_info(target_id)
-            return [line_api.text_message(f"🔍 ข้อมูลลูกค้า\n👤 ชื่อ: {m['display_name']}\n🔢 รหัส: {m['member_code']}\n💰 เครดิต: {m['credit']:,.2f}\n🆔 LINE ID: {target_id}")]
+            return [reply_text(f"🔍 ข้อมูลลูกค้า\n👤 ชื่อ: {m['display_name']}\n🔢 รหัส: {m['member_code']}\n💰 เครดิต: {m['credit']:,.2f}\n🆔 LINE ID: {target_id}")]
 
         # ยอดเจ้ามือเรียลไทม์
         if text.strip() in ("ยอดเจ้ามือ", "เจ้ามือ"):
@@ -146,6 +139,19 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
         if m_accept:
             return _handle_set_limit(text, m_accept)
 
+    # ===== 2. ห้องเล่น (Play Room) / ส่วนตัว (Private) =====
+    if room_type in ("play", "private"):
+        # แทงมวย (ด500, ง1000)
+        bet = calc.parse_bet(text)
+        if bet:
+            return _handle_bet(mid, user_id, text, bet, admin)
+        
+        # แอดมินเปิดราคา (คีย์ลัดราคา)
+        if admin:
+            board = calc.parse_board_from_text(text, require_accept=False)
+            if board is not None:
+                return _handle_board(admin, mid, text, board)
+
     # 4. คีย์ลัดทั่วไป (ถ้าไม่ตรงคำสั่งด้านบน และเป็นคีย์ที่ตั้งไว้)
     kw_messages = _keyword_reply(text, mid)
     if kw_messages:
@@ -154,11 +160,11 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
     # ถ้าไม่ตรงคีย์ใดๆ เลย ให้เงียบ (Strict Matching)
     return []
 
-def _handle_realtime_summary(mid: int) -> list:
+def _handle_realtime_summary(mid: int, line_user_id: str = None) -> list:
     """แสดงยอดได้เสียเรียลไทม์ (cc)"""
     rows = models.list_bets(member_id=mid)[:10]
     if not rows:
-        return [line_api.text_message("ยังไม่มีรายการแทงในขณะนี้")]
+        return [line_api.text_message("ยังไม่มีรายการแทงในขณะนี้", line_user_id)]
     
     out = ["📋 ยอดได้เสียเรียลไทม์:"]
     for r in rows:
@@ -167,7 +173,7 @@ def _handle_realtime_summary(mid: int) -> list:
     
     m = models.get_member_info(mid)
     out.append(f"\n💰 เครดิตคงเหลือ: {m['credit']:,.2f} บาท")
-    return [line_api.text_message("\n".join(out))]
+    return [line_api.text_message("\n".join(out), line_user_id)]
 
 def _handle_house_summary() -> list:
     """แสดงยอดรวมเจ้ามือ (Admin Only)"""
@@ -228,17 +234,17 @@ def _handle_review_bets(mid: int, match_no: int, target: str, admin: bool) -> li
     
     return [line_api.text_message("\n".join(out))]
 
-def _handle_bet(mid: int, text: str, bet: tuple, admin: bool) -> list:
+def _handle_bet(mid: int, line_user_id: str, text: str, bet: tuple, admin: bool) -> list:
     side, amount = bet
     match_id = get_open_match()
     if not match_id:
-        return [line_api.text_message("⚠️ ยังไม่มีคู่เปิดรับแทง")]
+        return [line_api.text_message("⚠️ ยังไม่มีคู่เปิดรับแทง", line_user_id)]
     
     # ดึงราคาล่าสุด
     conn = models.get_conn()
     board_row = conn.execute("SELECT * FROM price_boards WHERE match_id=? ORDER BY id DESC LIMIT 1", (match_id,)).fetchone()
     if not board_row:
-        return [line_api.text_message("⚠️ ยังไม่มีการตั้งราคา")]
+        return [line_api.text_message("⚠️ ยังไม่มีการตั้งราคา", line_user_id)]
     
     # เช็คป้ายรับ
     current_bets = models.list_bets(match_id=match_id)
@@ -246,12 +252,12 @@ def _handle_bet(mid: int, text: str, bet: tuple, admin: bool) -> list:
     limit = board_row["accept_amt"]
     
     if limit > 0 and total_side >= limit:
-        return [line_api.text_message("ไม่ติด")]
+        return [line_api.text_message("ไม่ติด", line_user_id)]
     
     # เช็คทุนลูกค้า
     credit = models.get_member_credit(mid)
     if credit <= 0:
-        return [line_api.text_message("ไม่ติด")]
+        return [line_api.text_message("ไม่ติด", line_user_id)]
     
     # คำนวณยอดที่ติดจริง
     actual = amount
@@ -268,7 +274,7 @@ def _handle_bet(mid: int, text: str, bet: tuple, admin: bool) -> list:
         full_cap = False # ใช้คำว่า ติดเต็มจำนวนทุน แทน
         
     if actual <= 0:
-        return [line_api.text_message("ไม่ติด")]
+        return [line_api.text_message("ไม่ติด", line_user_id)]
         
     # บันทึกบิล
     models.add_bet(mid, match_id, board_row["id"], side, amount, actual, full_cap)
@@ -283,7 +289,7 @@ def _handle_bet(mid: int, text: str, bet: tuple, admin: bool) -> list:
     else:
         msg = f"ติด {actual:,.0f}"
         
-    return [line_api.text_message(msg)]
+    return [line_api.text_message(msg, line_user_id)]
 
 def _handle_board(admin: bool, mid: int, text: str, board: calc.PriceBoard) -> list:
     mid_match = get_open_match()

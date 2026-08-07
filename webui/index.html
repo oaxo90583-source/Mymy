@@ -67,7 +67,7 @@
 
   <section id="members">
     <button class="btn" onclick="showCredit()">+ ฝาก/ถอน/เติมเครดิต</button>
-    <table id="memberTable"><thead><tr><th>ID</th><th>ชื่อ</th><th>เครดิตคงเหลือ</th></tr></thead><tbody></tbody></table>
+    <table id="memberTable"><thead><tr><th>รหัส</th><th>ชื่อ</th><th>เครดิตคงเหลือ</th><th>การกระทำ</th></tr></thead><tbody></tbody></table>
   </section>
 
   <section id="bets">
@@ -198,15 +198,30 @@ async function loadPool(){
 async function loadMembers(){
   const rows = await get('/members');
   $('#memberTable tbody').innerHTML = rows.map(r =>
-    `<tr><td>${r.line_user_id.slice(0,10)}...</td><td>${r.display_name}</td><td>${fmt(r.credit)}</td></tr>`
-  ).join('') || '<tr><td colspan="3" style="text-align:center;color:var(--muted)">ยังไม่มีสมาชิก</td></tr>';
+    `<tr><td>${r.member_code}</td><td>${r.display_name}</td><td>${fmt(r.credit)}</td>
+    <td><button class="btn small" onclick="showCredit('${r.line_user_id}')">แก้เครดิต</button></td></tr>`
+  ).join('') || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">ยังไม่มีสมาชิก</td></tr>';
 }
 
-function showCredit(){
-  dialog(`<label>LINE User ID</label><input id="uid" placeholder="U000...">
+function showCredit(uid = ''){
+  dialog(`<h3>จัดการเครดิต</h3>
+    <label>LINE User ID / รหัสลูกค้า</label><input id="uid" value="${uid}" placeholder="U000... หรือ M0001">
     <label>ประเภท</label><select id="kind"><option>เติม</option><option>ฝาก</option><option>ถอน</option></select>
     <label>จำนวน</label><input id="amt" type="number" placeholder="1000">
-    <button class="btn" onclick="(async()=>{const res=await post('/credit',{user_id:document.getElementById('uid').value,kind:document.getElementById('kind').value,amount:+document.getElementById('amt').value});closeDlg();toast('เครดิตใหม่: '+res.new_credit.toLocaleString('th-TH'));loadMembers()})()">บันทึก</button>`);
+    <label>หมายเหตุ</label><input id="note" placeholder="เติมเงินรายวัน">
+    <button class="btn" onclick="saveCredit()">บันทึก</button>`);
+}
+
+async function saveCredit(){
+    const res = await post('/credit', {
+        user_id: $('#uid').value,
+        kind: $('#kind').value,
+        amount: +$('#amt').value,
+        note: $('#note').value
+    });
+    closeDlg();
+    toast('เครดิตใหม่: ' + fmt(res.new_credit));
+    loadMembers();
 }
 
 async function loadBets(){
