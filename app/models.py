@@ -39,6 +39,7 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS members (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     line_user_id TEXT UNIQUE NOT NULL,
+    member_code TEXT UNIQUE,
     display_name TEXT DEFAULT '',
     credit REAL NOT NULL DEFAULT 0,
     is_admin INTEGER NOT NULL DEFAULT 0,
@@ -121,6 +122,27 @@ CREATE TABLE IF NOT EXISTS keywords (
 def init_db() -> None:
     conn = get_conn()
     conn.executescript(SCHEMA)
+    
+    # ตรวจสอบและเพิ่มคอลัมน์ member_code ถ้ายังไม่มี (Migration)
+    try:
+        # SQLite ไม่ยอมให้เพิ่ม UNIQUE column โดยตรงผ่าน ALTER TABLE
+        conn.execute("ALTER TABLE members ADD COLUMN member_code TEXT")
+        conn.commit()
+        
+        # สร้าง Index เพื่อให้ค้นหาเร็วและเลียนแบบ Unique
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_member_code ON members(member_code)")
+        conn.commit()
+        
+        # เจนรหัสให้สมาชิกเก่าที่ยังไม่มีรหัส
+        rows = conn.execute("SELECT id FROM members WHERE member_code IS NULL").fetchall()
+        for r in rows:
+            mid = r["id"]
+            code = f"M{mid:04d}"
+            conn.execute("UPDATE members SET member_code=? WHERE id=?", (code, mid))
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass # คอลัมน์อาจจะมีอยู่แล้ว
+        
     conn.commit()
 
 
@@ -130,9 +152,12 @@ def ensure_admin(line_user_id: str) -> int:
     row = conn.execute("SELECT id FROM members WHERE line_user_id=?", (line_user_id,)).fetchone()
     if row:
         return row["id"]
-    conn.execute("INSERT INTO members(line_user_id, is_admin) VALUES(?,1)", (line_user_id,))
+    
+    # ถ้ายังไม่มี ให้สร้างใหม่พร้อมรหัส
+    mid = new_member(line_user_id, "Admin")
+    conn.execute("UPDATE members SET is_admin=1 WHERE id=?", (mid,))
     conn.commit()
-    return conn.execute("SELECT id FROM members WHERE line_user_id=?", (line_user_id,)).fetchone()["id"]
+    return mid
 
 
 def new_match(name: str) -> int:
@@ -188,7 +213,24 @@ def new_member(line_user_id: str, display_name: str = "") -> int:
     conn.execute("INSERT INTO members(line_user_id, display_name) VALUES(?,?)",
                  (line_user_id, display_name))
     conn.commit()
-    return conn.execute("SELECT id FROM members WHERE line_user_id=?", (line_user_id,)).fetchone()["id"]
+    row = conn.execute("SELECT id FROM members WHERE line_user_id=?", (line_user_id,)).fetchone()
+    mid = row["id"]
+    
+    # สร้างรหัสลูกค้าอัตโนมัติ (เช่น M0001)
+    code = f"M{mid:04d}"
+    conn.execute("UPDATE members SET member_code=? WHERE id=?", (code, mid))
+    conn.commit()
+    return mid
+
+def get_member_by_code(code: str) -> Optional[dict]:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM members WHERE member_code=?", (code,)).fetchone()
+    return dict(row) if row else None
+
+def get_member_info(member_id: int) -> Optional[dict]:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM members WHERE id=?", (member_id,)).fetchone()
+    return dict(row) if row else None
 
 
 def open_board_for_side(match_id: int, side: str) -> float:

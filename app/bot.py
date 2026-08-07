@@ -67,7 +67,9 @@ def get_open_match() -> int:
 
 
 def _credit_text(mid: int) -> str:
-    return f"เครดิตคงเหลือ: {models.get_member_credit(mid):,.2f} บาท"
+    m = models.get_member_info(mid)
+    code = m["member_code"] if m and m.get("member_code") else f"ID:{mid}"
+    return f"รหัสลูกค้า: {code}\nเครดิตคงเหลือ: {models.get_member_credit(mid):,.2f} บาท"
 
 
 # ---------- คำสั่งแอดมิน ----------
@@ -77,29 +79,44 @@ RESULT_CMD = re.compile(r"^(dd|ff|sm|เสมอ|ล|p|เปิด|ยก(?:�
 
 
 def admin_credit_cmd(user_id: str, kind: str, target_id: str, amount: float) -> str:
+    # ค้นหาสมาชิกจาก LINE ID หรือ Member Code
+    mid = models.find_member(target_id)
+    if not mid and target_id and target_id.startswith("M"):
+        m = models.get_member_by_code(target_id.upper())
+        if m: mid = m["id"]
+        
     if kind == "เติม":
-        mid = models.find_member(target_id)
         if not mid:
-            mid = models.new_member(target_id)
+            if target_id and target_id.startswith("U"): # LINE ID
+                mid = models.new_member(target_id)
+            else:
+                return f"❌ ไม่พบสมาชิก {target_id}"
         models.adjust_credit(mid, amount)
         models.add_txn(mid, "เติม", amount)
-        return f"✅ เติม {amount:,.2f} ให้ {target_id[:8]} สำเร็จ"
+        m = models.get_member_info(mid)
+        code = m["member_code"] if m else target_id[:8]
+        return f"✅ เติม {amount:,.2f} ให้ {code} สำเร็จ"
     if kind == "ฝาก":
-        mid = models.find_member(target_id)
         if not mid:
-            mid = models.new_member(target_id)
+            if target_id and target_id.startswith("U"): # LINE ID
+                mid = models.new_member(target_id)
+            else:
+                return f"❌ ไม่พบสมาชิก {target_id}"
         models.adjust_credit(mid, amount)
         models.add_txn(mid, "ฝาก", amount)
-        return f"✅ บันทึกฝากรับ {amount:,.2f} ของ {target_id[:8]}"
+        m = models.get_member_info(mid)
+        code = m["member_code"] if m else target_id[:8]
+        return f"✅ บันทึกฝากรับ {amount:,.2f} ของ {code}"
     if kind == "ถอน":
-        mid = models.find_member(target_id)
         if not mid:
             return "❌ ไม่พบสมาชิกนี้"
         if models.get_member_credit(mid) < amount:
             return "⚠️ เครดิตไม่พอถอน"
         models.adjust_credit(mid, -amount)
         models.add_txn(mid, "ถอน", amount)
-        return f"✅ อนุมัติถอน {amount:,.2f} ของ {target_id[:8]}"
+        m = models.get_member_info(mid)
+        code = m["member_code"] if m else target_id[:8]
+        return f"✅ อนุมัติถอน {amount:,.2f} ของ {code}"
     return ""
 
 
