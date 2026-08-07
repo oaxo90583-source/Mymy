@@ -15,3 +15,9 @@ services:
         generateValue: true
       - key: MUAYTHAI_DB_PATH
         value: /app/data/muaythai.db
+      - key: MUAYTHAI_BANK
+        value: "959-243-7898"
+      - key: MUAYTHAI_BANK_NAME
+        value: "ไทยพานิชย์"
+      - key: MUAYTHAI_MAX_CAP
+        value: "0"
