@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 app/web.py — FastAPI app:
-- POST /webhook      : LINE Messaging API webhook
+- POST /webhook      : LINE Messaging API webhook (พร้อม Debug Log ละเอียด)
 - GET  /             : พอร์ทแอดมิน (SPA)
 - GET  /api/*        : REST API สำหรับแอดมิน (ดู/แก้/สรุปผล)
 """
@@ -20,6 +20,8 @@ from pydantic import BaseModel
 
 from app import bot, models, line_api
 
+# ตั้งค่า Logging ให้แสดงผลบน Console ของ Render อย่างชัดเจน
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("muaythai_bot")
 
 app = FastAPI(title="บอทคำนวณมวยพักยก")
@@ -31,11 +33,11 @@ async def _startup():
     if not models.count_keywords():
         models.seed_keywords_from_json()
         logger.info("seeded %d keywords", models.count_keywords())
+
 app.mount("/static", StaticFiles(directory=os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "webui")), name="static")
 
 CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
-
 
 
 # ---------- webhook ----------
@@ -62,28 +64,54 @@ def _verify_signature(body: bytes, signature: str) -> bool:
 @app.post("/webhook")
 async def webhook(req: Request, x_line_signature: Optional[str] = Header(None)):
     body = await req.body()
+    logger.info("🔔 รับ Webhook request, signature: %s, body length: %d", x_line_signature, len(body))
+    
     if not _verify_signature(body, x_line_signature or ""):
+        logger.error("❌ ล้มเหลว: Signature ไม่ถูกต้อง (Mismatch)")
         raise HTTPException(401, "signature mismatch")
-    payload = _LINEPayload.model_validate_json(body)
+    
+    try:
+        payload = _LINEPayload.model_validate_json(body)
+    except Exception as e:
+        logger.error("❌ ไม่สามารถแปลง JSON Payload จาก LINE ได้: %s | Body: %s", e, body.decode('utf-8', errors='ignore'))
+        return {"ok": True}
+
     for ev in payload.events:
+        logger.info("📩 ได้รับ Event type: %s", ev.type)
         if ev.type != "message" or not ev.message:
             continue
         msg = ev.message
         if msg.get("type") != "text":
+            logger.info("ℹ️ ข้ามข้อความที่ไม่ใช่ข้อความตัวหนังสือ (Type: %s)", msg.get("type"))
             continue
+        
         user_id = ev.source.get("userId", "")
-        display = (msg.get("text") or "")[:40]
+        text_content = msg.get("text") or ""
+        logger.info("💬 ข้อความจากผู้ใช้ [User ID: %s]: %s", user_id, text_content)
+        
+        display = text_content[:40]
         try:
             prof = line_api.get_profile(user_id)
             display = prof.get("displayName", display)
-        except Exception:
-            pass
-        replies = bot.handle_message(user_id, display, msg.get("text") or "")
-        if msg.get("replyToken"):
+        except Exception as e:
+            logger.warning("⚠️ ไม่สามารถดึง Profile ของผู้ใช้ %s ได้: %s", user_id, e)
+            
+        try:
+            replies = bot.handle_message(user_id, display, text_content)
+            logger.info("🤖 ผลลัพธ์ข้อความตอบกลับที่สร้างสำหรับ %s: %s", user_id, replies)
+        except Exception as e:
+            logger.error("🔥 เกิดข้อผิดพลาดใน bot.handle_message สำหรับ %s: %s", user_id, e, exc_info=True)
+            replies = [line_api.text_message("⚠️ เกิดข้อผิดพลาดในการประมวลผลคำสั่ง กรุณาลองใหม่อีกครั้ง")]
+
+        if msg.get("replyToken") and replies:
             try:
-                line_api.reply(msg["replyToken"], replies)
+                resp = line_api.reply(msg["replyToken"], replies)
+                logger.info("📤 ส่งข้อความกลับ LINE สำเร็จ | Status: %s | Body: %s", resp.status_code, resp.text)
+                if resp.status_code != 200:
+                    logger.error("❌ LINE API ปฏิเสธการส่งข้อความ Status %d: %s", resp.status_code, resp.text)
             except Exception as e:
-                logger.error("reply failed: %s", e)
+                logger.error("🔥 เกิดข้อผิดพลาดขณะเรียก line_api.reply: %s", e, exc_info=True)
+                
     return {"ok": True}
 
 
@@ -163,7 +191,7 @@ def api_credit(payload: dict):
     return {"ok": True, "new_credit": models.get_member_credit(mid)}
 
 
-@app.get("/api/keywords", dependencies=[Depends(_require_admin)])
+@app.get("/api/keywords", dependencies=[Depends(_keyword_reply := None) or Depends(_require_admin)])
 def api_keywords():
     conn = models.get_conn()
     return [dict(r) for r in conn.execute("SELECT * FROM keywords ORDER BY id").fetchall()]
