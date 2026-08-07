@@ -15,9 +15,14 @@ import re
 import json
 import asyncio
 import logging
+import time
 from dataclasses import dataclass
 
 from app import calc, models, line_api
+
+# ระบบป้องกันการส่งยอดซ้ำ (Duplicate Protection)
+# key: member_id, value: (side, amount, timestamp)
+_LAST_BETS_CACHE = {}
 
 logger = logging.getLogger("muaythai_bot")
 
@@ -130,6 +135,11 @@ def handle_message(user_id: str, display_name: str, text: str) -> list:
     bet = calc.parse_bet(text)
     if bet:
         return _handle_bet(mid, text, bet, admin)
+    
+    # ตรวจสอบว่าพิมพ์ผิดรูปแบบหรือไม่ (เช่น ลืมใส่ยอด หรือ ลืมใส่มุม)
+    bet_err = calc.parse_bet_error(text)
+    if bet_err:
+        return [line_api.text_message(bet_err)]
 
     # ===== สมาชิก: เครดิต =====
     if text.lower() in ("c", "เครดิต"):
@@ -225,6 +235,17 @@ def _handle_result_cmd(text: str, m) -> list:
 
 def _handle_bet(mid: int, text: str, bet, admin: bool) -> list:
     side, amount = bet
+    
+    # ตรวจสอบการส่งยอดซ้ำภายใน 10 วินาที
+    now = time.time()
+    if mid in _LAST_BETS_CACHE:
+        last_side, last_amount, last_ts = _LAST_BETS_CACHE[mid]
+        if side == last_side and amount == last_amount and (now - last_ts) < 10:
+            return [line_api.text_message("⚠️ คุณเพิ่งส่งยอดนี้ไปเมื่อสักครู่ ระบบป้องกันการส่งซ้ำเพื่อกันมือลั่นครับ")]
+    
+    # บันทึกลง Cache
+    _LAST_BETS_CACHE[mid] = (side, amount, now)
+
     match_id = get_open_match()
     if not match_id:
         return [line_api.text_message("⚠️ ยังไม่มีคู่ที่เปิดอยู่")]

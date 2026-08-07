@@ -331,3 +331,22 @@ def settle(board: PriceBoard, winner: str, bets: list) -> list:
         else:
             out.append({**b, "payout": 0.0, "result": "แพ้", "note": f"เสีย {b['stake']:,.2f}"})
     return out
+
+def parse_bet_error(text: str) -> Optional[str]:
+    """ตรวจสอบว่าข้อความดูเหมือนจะแทงแต่ผิดรูปแบบหรือไม่"""
+    t = text.strip()
+    if not t: return None
+    
+    # ถ้าขึ้นต้นด้วย ด/ง/แดง/น้ำเงิน แต่ไม่มีตัวเลขตามหลังเลย
+    if re.match(r"^(ด|ง|แดง|น้ำเงิน)$", t):
+        return "⚠️ กรุณาใส่ยอดเงินด้วยครับ เช่น ด500"
+    
+    # ถ้ามีทั้ง ด และ ง ในข้อความเดียว (และไม่ใช่ป้ายราคาที่มีคำว่า 'รับ')
+    if (re.search(r"ด|แดง", t) and re.search(r"ง|น้ำเงิน|น้", t)) and "รับ" not in t:
+        return "❌ ไม่ติด: ห้ามพิมพ์ทั้งแดงและน้ำเงินในบิลเดียวครับ"
+        
+    # ถ้ามีตัวเลขลอยๆ แต่ไม่มีมุม (และไม่ใช่คำสั่งเช็คยอด)
+    if re.match(r"^\d+$", t) and t.lower() not in ("c", "cc"):
+        return f"⚠️ คุณพิมพ์ '{t}' กรุณาระบุมุมด้วยครับ เช่น ด{t} หรือ ง{t}"
+        
+    return None
