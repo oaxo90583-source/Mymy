@@ -59,6 +59,10 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
 
     # ===== 0. คำสั่งตั้งค่าห้อง (เฉพาะแอดมิน) =====
     if admin and room_id:
+        # เช็คไอดีกลุ่ม (gid)
+        if text.lower() in ("gid", "ไอดีกลุ่ม"):
+            return [line_api.text_message(f"🆔 Group ID: {room_id}")]
+
         if text == "ตั้งห้องเล่น":
             models.set_room_type(room_id, "play", "ห้องสำหรับสมาชิกแทง")
             return [line_api.text_message("✅ ตั้งค่าเป็น [ห้องเล่น] เรียบร้อย\n(รับเฉพาะคำสั่งแทง/ดูราคา)")]
@@ -71,6 +75,12 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
 
     # ===== 1. ห้องฝากถอน (Finance Room) / ส่วนตัว (Private) =====
     if room_type in ("finance", "private"):
+        # เช็คไอดี (id)
+        if text.lower() in ("id", "ไอดี"):
+            m = models.get_member_info(mid)
+            code = m["member_code"] if m else "N/A"
+            return [line_api.text_message(f"🆔 ข้อมูลสมาชิกของคุณ\n👤 ชื่อ: {m['display_name']}\n🔢 รหัสลูกค้า: {code}")]
+
         # เช็คเครดิต (c)
         if text.lower() == "c":
             m = models.get_member_info(mid)
@@ -116,6 +126,16 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
             match_no = int(m_review.group(1))
             target_name = m_review.group(2)
             return _handle_review_bets(mid, match_no, target_name, admin)
+
+        # เช็คไอดีลูกค้า (Admin Only): id [ชื่อ/รหัส]
+        m_id_check = re.match(r"^(?:id|ไอดี)\s+(.+)$", text, re.I)
+        if m_id_check:
+            target = m_id_check.group(1)
+            target_id = models.find_member(target)
+            if not target_id:
+                return [line_api.text_message(f"❌ ไม่พบสมาชิก '{target}'")]
+            m = models.get_member_info(target_id)
+            return [line_api.text_message(f"🔍 ข้อมูลลูกค้า\n👤 ชื่อ: {m['display_name']}\n🔢 รหัส: {m['member_code']}\n💰 เครดิต: {m['credit']:,.2f}\n🆔 LINE ID: {target_id}")]
 
         # ยอดเจ้ามือเรียลไทม์
         if text.strip() in ("ยอดเจ้ามือ", "เจ้ามือ"):
