@@ -30,8 +30,8 @@
   .stat .k{color:var(--muted);font-size:12px}
   .dialog{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;z-index:50}
   .dialog.show{display:flex}
-  .dialog .box{background:var(--card);border-radius:12px;padding:22px;min-width:320px;max-width:90vw}
-  input,select{background:#0d1220;border:1px solid #24304f;color:var(--text);padding:8px 10px;border-radius:8px;width:100%;margin:6px 0;font-size:14px}
+  .dialog .box{background:var(--card);border-radius:12px;padding:22px;min-width:320px;max-width:90vw;max-height:90vh;overflow-y:auto}
+  input,select,textarea{background:#0d1220;border:1px solid #24304f;color:var(--text);padding:8px 10px;border-radius:8px;width:100%;margin:6px 0;font-size:14px;font-family:inherit}
   label{color:var(--muted);font-size:12px}
   .toast{position:fixed;bottom:18px;right:18px;background:#1b4332;color:#c8f0d4;padding:10px 16px;border-radius:8px;display:none;z-index:100}
   .toast.show{display:block}
@@ -40,7 +40,7 @@
 <body>
 <header>
   <h1>🥊 บอทมวยพักยก — พอร์ตแอดมิน</h1>
-  <button class="btn small" id="logoutBtn">ออก</button>
+  <button class="btn small" id="logoutBtn">Token</button>
 </header>
 <main>
   <div class="tabs">
@@ -48,7 +48,7 @@
     <button data-tab="pool">ยอดรวมเจ้ามือ</button>
     <button data-tab="members">สมาชิก/เครดิต</button>
     <button data-tab="bets">บิลแทง</button>
-    <button data-tab="keywords">คีย์ลัด 206</button>
+    <button data-tab="keywords">คีย์ลัด</button>
   </div>
 
   <section id="matches" class="active">
@@ -57,7 +57,7 @@
       <div class="stat"><div class="k">บิลที่ติดรวม</div><div class="v" id="totalBets">0</div></div>
     </div>
     <button class="btn" onclick="showNewMatch()">+ เปิดคู่ใหม่</button>
-    <table id="matchTable"><thead><tr><th>#</th><th>ชื่อคู่</th><th>สถานะ</th><th>ผลลัพธ์</th><th>การกระทำ</th></tr></thead><tbody></tbody></table>
+    <table id="matchTable"><thead><tr><th>#</th><th>ชื่อคู่</th><th>สถานะ</th><th>ประกาศผล</th><th>แก้ไขราคา</th></tr></thead><tbody></tbody></table>
   </section>
 
   <section id="pool">
@@ -75,9 +75,11 @@
   </section>
 
   <section id="keywords">
-    <p style="color:var(--muted)">คีย์ลัด 206 รายการจาก LINE OA — แก้ไขได้ที่นี่</p>
-    <input id="kwSearch" placeholder="ค้นหาคีย์ลัด..." oninput="renderKeywords()">
-    <table id="kwTable"><thead><tr><th>หัวข้อ</th><th>คีย์เวิร์ด</th><th>ประเภท</th><th>คำตอบ</th></tr></thead><tbody></tbody></table>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <button class="btn" onclick="showEditKeyword()">+ เพิ่มคีย์ลัด</button>
+      <input id="kwSearch" placeholder="ค้นหาคีย์ลัด..." oninput="renderKeywords()" style="width:200px;margin:0">
+    </div>
+    <table id="kwTable"><thead><tr><th>หัวข้อ</th><th>คีย์เวิร์ด</th><th>คำตอบ</th><th>การกระทำ</th></tr></thead><tbody></tbody></table>
   </section>
 </main>
 
@@ -131,9 +133,17 @@ async function loadMatches(){
   $('#matchTable tbody').innerHTML = rows.map(r => `
     <tr><td>${r.id}</td><td>${r.name}</td>
     <td><span class="chip ${r.status==='open'?'open':r.status==='settled'?'settled':r.status==='cancelled'?'cancelled':'closed'}">${r.status}</span></td>
-    <td>${['j','jng','samoe'].map(w => `<button class="btn small" onclick="setResult(${r.id},'${w==='j'?'แดง':w==='jng'?'เงิน':'เสมอ'}')">${w==='j'?'แดงชนะ':w==='jng'?'เงินชนะ':'เสมอ'}</button>`).join(' ')}
-        <button class="btn small warn" onclick="setResult(${r.id},'ยกเลิก')">ยกเลิกคู่</button></td>
-    <td></td></tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">ยังไม่มีคู่</td></tr>';
+    <td>
+        ${r.status === 'open' ? `
+        <button class="btn small" onclick="setResult(${r.id},'แดง')">แดงชนะ</button>
+        <button class="btn small" onclick="setResult(${r.id},'เงิน')">เงินชนะ</button>
+        <button class="btn small" onclick="setResult(${r.id},'เสมอ')">เสมอ</button>
+        <button class="btn small warn" onclick="setResult(${r.id},'ยกเลิก')">ยกเลิก</button>
+        ` : '-'}
+    </td>
+    <td>
+        ${r.status === 'open' ? `<button class="btn small" onclick="showEditPrice(${r.id})">แก้ไขราคา</button>` : '-'}
+    </td></tr>`).join('') || '<tr><td colspan="5" style="text-align:center;color:var(--muted)">ยังไม่มีคู่</td></tr>';
 }
 
 async function setResult(id, winner){
@@ -146,6 +156,34 @@ async function setResult(id, winner){
 function showNewMatch(){
   dialog(`<label>ชื่อคู่</label><input id="nm" placeholder="คู่ที่ 1 / คู่เอก">
     <button class="btn" onclick="(async()=>{await post('/matches',{name:document.getElementById('nm').value});closeDlg();loadMatches();toast('เปิดคู่แล้ว')})()">บันทึก</button>`);
+}
+
+async function showEditPrice(id){
+    // ในโปรเจกต์นี้ ราคาล่าสุดจะถูกดึงจาก API pool หรือเราสามารถดึงราคาล่าสุดจาก board ได้
+    // เพื่อความง่าย ให้แอดมินกรอกราคาใหม่ลงไปเลย
+    dialog(`
+        <h3>แก้ไขราคาล่าสุด คู่ที่ ${id}</h3>
+        <label>ป้ายรับ (บาท)</label><input id="ep_acc" type="number" placeholder="20000">
+        <label>แดง (แทง/ได้) เช่น 5 / 2</label>
+        <div style="display:flex;gap:5px"><input id="ep_rp" placeholder="5"><input id="ep_rw" placeholder="2"></div>
+        <label>น้ำเงิน (แทง/ได้) เช่น 3 / 5</label>
+        <div style="display:flex;gap:5px"><input id="ep_bp" placeholder="3"><input id="ep_bw" placeholder="5"></div>
+        <button class="btn" onclick="savePrice(${id})">บันทึกราคา</button>
+    `);
+}
+
+async function savePrice(id){
+    const payload = {
+        accept_amt: +$('#ep_acc').value,
+        red_pay: +$('#ep_rp').value,
+        red_win: +$('#ep_rw').value,
+        blue_pay: +$('#ep_bp').value,
+        blue_win: +$('#ep_bw').value,
+        raw_text: "แก้ไขผ่านแดชบอร์ด"
+    };
+    await post(`/matches/${id}/price`, payload);
+    closeDlg();
+    toast('แก้ไขราคาสำเร็จ');
 }
 
 async function loadPool(){
@@ -183,13 +221,40 @@ async function loadKeywords(){
   window.__kw = rows;
   renderKeywords();
 }
+
 function renderKeywords(){
   const q = ($('#kwSearch').value||'').toLowerCase();
   const rows = (window.__kw||[]).filter(r =>
     (r.title||'').toLowerCase().includes(q) || (r.keywords||'').toLowerCase().includes(q));
   $('#kwTable tbody').innerHTML = rows.map(r =>
-    `<tr><td>${r.title}</td><td style="max-width:220px;font-size:12px">${(r.keywords||'').slice(0,80)}</td><td>${r.response_type}</td><td style="max-width:400px;font-size:12px">${(r.response||r.media_key||'').slice(0,60)}</td></tr>`
+    `<tr><td>${r.title}</td><td style="max-width:200px;font-size:12px">${(r.keywords||'').slice(0,50)}</td>
+    <td style="max-width:300px;font-size:12px">${(r.response||'').slice(0,60)}</td>
+    <td><button class="btn small" onclick="showEditKeyword(${r.id})">แก้</button></td></tr>`
   ).join('');
+}
+
+function showEditKeyword(id){
+    const kw = id ? window.__kw.find(x => x.id === id) : {title:'', keywords:'', response:''};
+    dialog(`
+        <h3>${id ? 'แก้ไข' : 'เพิ่ม'}คีย์ลัด</h3>
+        <label>หัวข้อ (Title)</label><input id="kw_t" value="${kw.title}">
+        <label>คีย์เวิร์ด (คำที่แอดมินพิมพ์)</label><input id="kw_k" value="${kw.keywords}">
+        <label>คำตอบ (สิ่งที่บอทตอบ)</label><textarea id="kw_r" rows="5">${kw.response}</textarea>
+        <button class="btn" onclick="saveKeyword(${id})">บันทึก</button>
+    `);
+}
+
+async function saveKeyword(id){
+    const payload = {
+        title: $('#kw_t').value,
+        keywords: $('#kw_k').value,
+        response: $('#kw_r').value
+    };
+    if(id) await post(`/keywords/${id}`, payload);
+    else await post(`/keywords`, payload);
+    closeDlg();
+    toast('บันทึกคีย์ลัดสำเร็จ');
+    loadKeywords();
 }
 
 loadTab('matches');

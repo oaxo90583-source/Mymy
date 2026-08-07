@@ -354,3 +354,52 @@ def seed_keywords_from_json(json_path: Optional[str] = None) -> int:
             n += 1
     conn.commit()
     return n
+
+def update_keyword(kw_id: int, title: str, keywords: str, response: str) -> None:
+    conn = get_conn()
+    conn.execute("UPDATE keywords SET title=?, keywords=?, response=? WHERE id=?",
+                 (title, keywords, response, kw_id))
+    conn.commit()
+
+def delete_keyword(kw_id: int) -> None:
+    conn = get_conn()
+    conn.execute("DELETE FROM keywords WHERE id=?", (kw_id,))
+    conn.commit()
+
+def add_keyword(title: str, keywords: str, response: str) -> int:
+    conn = get_conn()
+    import uuid
+    item_id = str(uuid.uuid4())
+    cur = conn.execute("INSERT INTO keywords(item_id, title, keywords, response) VALUES(?,?,?,?)",
+                       (item_id, title, keywords, response))
+    conn.commit()
+    return cur.lastrowid
+
+def update_keyword(kw_id: int, title: str, keywords: str, response: str) -> None:
+    conn = get_conn()
+    conn.execute("UPDATE keywords SET title=?, keywords=?, response=? WHERE id=?",
+                 (title, keywords, response, kw_id))
+    conn.commit()
+
+def delete_keyword(kw_id: int) -> None:
+    conn = get_conn()
+    conn.execute("DELETE FROM keywords WHERE id=?", (kw_id,))
+    conn.commit()
+
+def add_keyword(title: str, keywords: str, response: str) -> int:
+    conn = get_conn()
+    import uuid
+    item_id = str(uuid.uuid4())
+    cur = conn.execute("INSERT INTO keywords(item_id, title, keywords, response) VALUES(?,?,?,?)",
+                       (item_id, title, keywords, response))
+    conn.commit()
+    return cur.lastrowid
+
+def update_latest_board(match_id: int, raw_text: str, mode: str, red_pay: float, red_win: float, blue_pay: float, blue_win: float, accept_amt: float) -> None:
+    conn = get_conn()
+    # หา board ล่าสุดของคู่นี้
+    row = conn.execute("SELECT id FROM price_boards WHERE match_id=? ORDER BY id DESC LIMIT 1", (match_id,)).fetchone()
+    if row:
+        conn.execute("UPDATE price_boards SET raw_text=?, mode=?, red_pay=?, red_win=?, blue_pay=?, blue_win=?, accept_amt=? WHERE id=?",
+                     (raw_text, mode, red_pay, red_win, blue_pay, blue_win, accept_amt, row["id"]))
+        conn.commit()

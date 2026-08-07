@@ -218,6 +218,33 @@ def api_keywords():
     return [dict(r) for r in conn.execute("SELECT * FROM keywords ORDER BY id").fetchall()]
 
 
+@app.post("/api/keywords", dependencies=[Depends(_require_admin)])
+def api_add_keyword(payload: dict):
+    return {"id": models.add_keyword(payload.get("title", ""), payload.get("keywords", ""), payload.get("response", ""))}
+
+
+@app.post("/api/keywords/{kw_id}", dependencies=[Depends(_require_admin)])
+def api_update_keyword(kw_id: int, payload: dict):
+    models.update_keyword(kw_id, payload.get("title", ""), payload.get("keywords", ""), payload.get("response", ""))
+    return {"ok": True}
+
+
+@app.post("/api/matches/{match_id}/price", dependencies=[Depends(_require_admin)])
+def api_update_price(match_id: int, payload: dict):
+    # payload: {raw_text, mode, red_pay, red_win, blue_pay, blue_win, accept_amt}
+    models.update_latest_board(
+        match_id, 
+        payload.get("raw_text", ""), 
+        payload.get("mode", "ต่อไป"),
+        payload.get("red_pay"), 
+        payload.get("red_win"),
+        payload.get("blue_pay"), 
+        payload.get("blue_win"),
+        payload.get("accept_amt", 0)
+    )
+    return {"ok": True}
+
+
 @app.get("/api/pool", dependencies=[Depends(_require_admin)])
 def api_pool(match_id: Optional[int] = None):
     """ยอดรวมเจ้ามือ (รวมบิลที่ติด) จำลอง: ผลลบ = เจ้ามือต้องจ่าย, บวก = เจ้ามือกำไร"""
