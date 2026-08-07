@@ -10,6 +10,7 @@ services:
       - key: LINE_CHANNEL_SECRET
         sync: false
       - key: LINE_ADMIN_IDS
+        value: "U5d6733cad3eb8498104e42b468f175cc"
         sync: false
       - key: ADMIN_TOKEN
         generateValue: true
