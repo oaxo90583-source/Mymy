@@ -201,7 +201,9 @@ def _handle_set_limit(text: str, m) -> list:
         return [line_api.text_message("⚠️ ยังไม่มีคู่เปิดอยู่")]
     new_accept = float(m.group(1).replace(",", ""))
     conn = models.get_conn()
-    conn.execute("UPDATE price_boards SET accept_amt=? WHERE match_id=? ORDER BY id DESC LIMIT 1", (match_id,))
+    row = conn.execute("SELECT id FROM price_boards WHERE match_id=? ORDER BY id DESC LIMIT 1", (match_id,)).fetchone()
+    if row:
+        conn.execute("UPDATE price_boards SET accept_amt=? WHERE id=?", (new_accept, row["id"]))
     conn.commit()
     return [line_api.text_message(f"✅ ตั้งวงเงินรับเป็น {new_accept:,.2f} สำเร็จ")]
 
@@ -269,7 +271,7 @@ def _handle_bet(mid: int, text: str, bet: tuple, admin: bool) -> list:
         return [line_api.text_message("ไม่ติด")]
         
     # บันทึกบิล
-    models.add_bet(mid, match_id, board_row["id"], side, amount, actual)
+    models.add_bet(mid, match_id, board_row["id"], side, amount, actual, full_cap)
     models.adjust_credit(mid, -actual)
     
     # แจ้งเตือนตามกติกา
@@ -287,9 +289,7 @@ def _handle_board(admin: bool, mid: int, text: str, board: calc.PriceBoard) -> l
     mid_match = get_open_match()
     if not mid_match:
         mid_match = models.new_match(f"คู่ที่ {len(models.list_matches())+1}")
-    bid = models.add_board(mid_match, text, board.mode, board.red.pay_num if board.red else 0, 
-                           board.red.win_num if board.red else 0, board.blue.pay_num if board.blue else 0,
-                           board.blue.win_num if board.blue else 0, board.accept)
+    bid = models.add_board(mid_match, text, board.mode, board.red, board.blue, board.accept, False)
     
     return [line_api.text_message(f"✅ เปิดราคาใหม่: {text}")]
 

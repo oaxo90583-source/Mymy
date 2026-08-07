@@ -152,6 +152,57 @@ def init_db() -> None:
     conn.commit()
 
 
+def is_admin(line_user_id: str) -> bool:
+    """ตรวจสอบสิทธิ์แอดมิน จาก is_admin flag ในฐานข้อมูล หรือจาก LINE_ADMIN_IDS env"""
+    # ตรวจสอบจาก env ก่อน (เพิ่มประสิทธิภาพ)
+    admin_ids_env = os.environ.get("LINE_ADMIN_IDS", "")
+    if admin_ids_env:
+        ids = [x.strip() for x in admin_ids_env.split(",") if x.strip()]
+        if line_user_id in ids:
+            return True
+    # ตรวจสอบจากฐานข้อมูล
+    conn = get_conn()
+    row = conn.execute("SELECT is_admin FROM members WHERE line_user_id=?", (line_user_id,)).fetchone()
+    return bool(row and row["is_admin"])
+
+
+def ensure_member(line_user_id: str, display_name: str = "") -> int:
+    """ลงทะเบียนสมาชิกถ้ายังไม่มี ส่งคืน member_id"""
+    conn = get_conn()
+    row = conn.execute("SELECT id FROM members WHERE line_user_id=?", (line_user_id,)).fetchone()
+    if row:
+        # อัปเดตชื่อถ้ามีการส่งมา
+        if display_name:
+            conn.execute("UPDATE members SET display_name=? WHERE id=?", (display_name, row["id"]))
+            conn.commit()
+        return row["id"]
+    return new_member(line_user_id, display_name)
+
+
+def get_open_match() -> Optional[int]:
+    """ดึง ID คู่ที่กำลังเปิดรับแทง (status='open')"""
+    conn = get_conn()
+    row = conn.execute("SELECT id FROM matches WHERE status='open' ORDER BY id DESC LIMIT 1").fetchone()
+    return row["id"] if row else None
+
+
+def log_txn(member_id: int, kind: str, amount: float, note: str = "") -> int:
+    """บันทึกรายการฝาก/ถอน/เติม (alias ของ add_txn)"""
+    return add_txn(member_id, kind, amount, note=note)
+
+
+def find_keyword(text: str) -> Optional[str]:
+    """ค้นหาคีย์เวิร์ดที่ตรงกับข้อความ ส่งคืน response หรือ None"""
+    conn = get_conn()
+    rows = conn.execute("SELECT keywords, response FROM keywords WHERE active=1").fetchall()
+    text_lower = text.strip().lower()
+    for row in rows:
+        kws = [k.strip().lower() for k in (row["keywords"] or "").split() if k.strip()]
+        if text_lower in kws:
+            return row["response"]
+    return None
+
+
 def ensure_admin(line_user_id: str) -> int:
     """รับประกันว่า user เป็นแอดมิน (ใช้ในระหว่างพัฒนา) — ส่งคืน member_id"""
     conn = get_conn()
@@ -208,9 +259,19 @@ def adjust_credit(member_id: int, delta: float) -> float:
     return float(row["credit"])
 
 
-def find_member(line_user_id: str) -> Optional[int]:
+def find_member(query: str) -> Optional[int]:
+    """ค้นหาสมาชิกจาก line_user_id, member_code, หรือ display_name"""
     conn = get_conn()
-    row = conn.execute("SELECT id FROM members WHERE line_user_id=?", (line_user_id,)).fetchone()
+    # ค้นหาจาก line_user_id
+    row = conn.execute("SELECT id FROM members WHERE line_user_id=?", (query,)).fetchone()
+    if row:
+        return row["id"]
+    # ค้นหาจาก member_code (เช่น M0001)
+    row = conn.execute("SELECT id FROM members WHERE member_code=?", (query.upper(),)).fetchone()
+    if row:
+        return row["id"]
+    # ค้นหาจาก display_name (ตรงตัวอักษร)
+    row = conn.execute("SELECT id FROM members WHERE display_name=?", (query,)).fetchone()
     return row["id"] if row else None
 
 
