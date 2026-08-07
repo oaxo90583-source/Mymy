@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: muaythai-line-bot
+    env: docker
+    plan: free
+    region: singapore
+    envVars:
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_ADMIN_IDS
+        sync: false
+      - key: ADMIN_TOKEN
+        generateValue: true
+      - key: MUAYTHAI_DB_PATH
+        value: /app/data/muaythai.db
