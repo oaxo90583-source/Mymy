@@ -31,15 +31,17 @@ def text_message(t: str, user_id: str = None):
         return {"type": "text", "text": t}
     
     # รูปแบบ Mention ของ LINE: ใส่ @[name] ใน text และระบุ mentionee
-    # ในที่นี้เราจะใส่ @ ที่หน้าข้อความ
+    # ใช้สัญลักษณ์พิเศษ (เช่น ช่องว่าง) เป็นตัวแทนของชื่อที่จะถูก Mention
+    mention_char = "@"
+    full_text = f"{mention_char} {t}"
     return {
         "type": "text",
-        "text": f"@{t}",
+        "text": full_text,
         "mention": {
             "mentionees": [
                 {
                     "index": 0,
-                    "length": 1, # ความยาวของ @
+                    "length": len(mention_char),
                     "userId": user_id
                 }
             ]
