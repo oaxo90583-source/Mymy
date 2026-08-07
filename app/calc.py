@@ -28,12 +28,33 @@ class Price:
 
     def payout(self, stake: float) -> float:
         """เงินชนะที่ได้รับเมื่อแทง `stake` (ไม่รวมต้น)
-        - ด 52: แทง 52 ได้ 1 → แทง x ได้ x/52
-        - ง 10/9: แทง 9 ได้ 10 → แทง x ได้ x*10/9
+        กติกา: 
+        - ถ้าเป็นฝ่ายต่อ (Fav): 
+            - ราคาปกติ (เช่น 2/1): เลขมากคือทุน เลขน้อยคือกำไร (แทง 2 ได้ 1)
+            - ราคาไหล (เช่น 10/9): เลขน้อยคือทุน เลขมากคือกำไร (แทง 9 ได้ 10)
+        - ถ้าเป็นฝ่ายรอง (Underdog):
+            - ราคาปกติ (เช่น 5/3): เลขน้อยคือทุน เลขมากคือกำไร (แทง 3 ได้ 5)
+            - ราคาไหล (เช่น 10/9): เลขน้อยคือทุน เลขมากคือกำไร (แทง 9 ได้ 10)
         """
-        if self.pay_num == 0:
-            raise ValueError("ราคา pay_num ไม่สามารถเป็น 0 ได้")
-        return stake * self.win_num / self.pay_num
+        if self.pay_num == 0 or self.win_num == 0:
+            raise ValueError("ราคาไม่ถูกต้อง")
+        
+        n1, n2 = self.pay_num, self.win_num
+        
+        # ราคาไหล (10/9, 11/8, 5/4) คือราคาที่ตัวเลขใกล้เคียงกันมาก
+        # ในมวยพักยก 10/9 คือ แทง 9 ได้ 10 เสมอ ไม่ว่าจะต่อหรือรอง
+        is_flow = abs(n1 - n2) <= 2 and n1 > 1 and n2 > 1
+        
+        if is_flow:
+            ทุน, กำไร = min(n1, n2), max(n1, n2)
+        elif self.is_fav:
+            # ฝ่ายต่อปกติ: ทุนคือเลขมาก กำไรคือเลขน้อย (2/1 -> ทุน 2 ได้ 1)
+            ทุน, กำไร = max(n1, n2), min(n1, n2)
+        else:
+            # ฝ่ายรองปกติ: ทุนคือเลขน้อย กำไรคือเลขมาก (5/3 -> ทุน 3 ได้ 5)
+            ทุน, กำไร = min(n1, n2), max(n1, n2)
+            
+        return stake * กำไร / ทุน
 
     def __repr__(self):
         kind = "ต่อ" if self.is_fav else "รอง"
@@ -297,16 +318,16 @@ def check_bet_limit(stake: float, member_credit: float, pool: float) -> Tuple[fl
     - member_credit = ทรัพย์สมาชิกคงเหลือ (เช่น 1000)
     - pool = ป้ายรับของฝ่ายนั้น (เช่น 1000)
     คืน (ยอดที่ติดจริง, ติดเต็ม, เหตุผล)
-
-    กติกาจาก req:
-    - ทรัพย์ 1000 แทง 1500 → "ติดเต็มจำนวน 1000" แล้วถ้าแทงอีก → "ไม่ติด"
-    - ป้ายรับ 1000 แต่ทรัพย์ 700 → "ติด 700" แล้วแทงอีก → "ไม่ติด"
     """
     limit = min(member_credit, pool)
     if stake > limit:
         if limit <= 0:
             return 0.0, False, "ไม่ติด"
         return limit, True, f"ติดเต็มจำนวน {int(limit)}"
+    
+    if stake <= 0:
+        return 0.0, False, "ไม่ติด"
+        
     return stake, True, f"ติด {int(stake)}"
 
 

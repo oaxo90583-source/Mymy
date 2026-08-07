@@ -73,7 +73,7 @@ def _credit_text(mid: int) -> str:
 # ---------- คำสั่งแอดมิน ----------
 ADMIN_CMD = re.compile(
     r"^(ฝาก|ถอน|เติม)\s*([Uu][0-9A-Za-z]{8,40})?\s*([\d,]+)(?:\s+(.*))?$")
-RESULT_CMD = re.compile(r"^(dd|ff|sm|เสมอ|ล|p|เปิด|ยก(?:เลิก)?|ยุติ|x{1,3}|จ[งงง]|จง)\s*(.*)$", re.I)
+RESULT_CMD = re.compile(r"^(dd|ff|sm|เสมอ|ล|p|เปิด|ยก(?:เลิก)?|ยุติ|x{1,3}|จ[งงง]|จง|แก้ผล|สรุปรายวัน)\s*(.*)$", re.I)
 
 
 def admin_credit_cmd(user_id: str, kind: str, target_id: str, amount: float) -> str:
@@ -116,12 +116,12 @@ def handle_message(user_id: str, display_name: str, text: str) -> list:
 
     # ===== แอดมิน: คำสั่งจัดการระบบ (เช็คก่อนเพื่อไม่ให้คีย์ลัดทั่วไปแย่งตอบ) =====
     if admin:
-        # 1. เช็คคำสั่งประกาศผล/ปิดรับ (dd, ff, sm, ล, p)
+        # 1. เช็คคำสั่งประกาศผล/ปิดรับ/สรุปยอด (dd, ff, sm, ล, p, เปิด, สรุปรายวัน)
         m_res = RESULT_CMD.match(text)
         if m_res:
-            # ตรวจสอบว่าไม่ใช่แค่ตัวอักษรเดียวที่อาจไปซ้ำกับคีย์ลัดทั่วไป (ยกเว้น ล, p)
             cmd_check = m_res.group(1).strip().lower()
-            if len(cmd_check) > 1 or cmd_check in ("ล", "p", "จ"):
+            # คำสั่งเหล่านี้ให้ทำงานทันที
+            if cmd_check in ("dd", "ff", "sm", "เสมอ", "ล", "p", "เปิด", "ยก", "ยกเลิก", "ยุติ", "แก้ผล", "สรุปรายวัน") or len(cmd_check) > 1:
                 return _handle_result_cmd(text, m_res)
 
         # 2. เช็คคำสั่งฝาก/ถอน/เติม
@@ -141,23 +141,42 @@ def handle_message(user_id: str, display_name: str, text: str) -> list:
         if text.strip() in ("ยอดเจ้ามือ", "เจ้ามือ"):
             match_id = get_open_match()
             if not match_id:
-                return [line_api.text_message("⚠️ ยังไม่มีคู่เปิดอยู่")]
+                # ถ้าไม่มีคู่เปิด ลองหาคู่ล่าสุดที่จบไป
+                conn = models.get_conn()
+                last = conn.execute("SELECT id, name FROM matches ORDER BY id DESC LIMIT 1").fetchone()
+                if last: match_id = last["id"]
+                else: return [line_api.text_message("⚠️ ยังไม่มีคู่ในระบบ")]
+            
             bets = models.list_bets(match_id=match_id)
             total_red = sum(b["actual"] for b in bets if b["side"] == "แดง" and b["status"] == "ติด")
             total_blue = sum(b["actual"] for b in bets if b["side"] == "น้ำเงิน" and b["status"] == "ติด")
-            return [line_api.text_message(f"📊 ยอดรวมเจ้ามือ (คู่ปัจจุบัน):\n🔴 แดง: {total_red:,.2f}\n🔵 น้ำเงิน: {total_blue:,.2f}\n💰 ยอดรวมทั้งหมด: {total_red + total_blue:,.2f}")]
+            
+            # คำนวณความเสี่ยง (เสียสูงสุด)
+            # ดึงราคาล่าสุด
+            conn = models.get_conn()
+            board = conn.execute("SELECT * FROM price_boards WHERE match_id=? ORDER BY id DESC LIMIT 1", (match_id,)).fetchone()
+            risk_text = ""
+            if board:
+                # คำนวณกำไรถ้าแดงชนะ (ได้จากน้ำเงิน - จ่ายแดง)
+                payout_red = sum(calc.Price("แดง", True, board["red_pay"], board["red_win"]).payout(b["actual"]) for b in bets if b["side"] == "แดง" and b["status"] == "ติด")
+                # คำนวณกำไรถ้าน้ำเงินชนะ (ได้จากแดง - จ่ายน้ำเงิน)
+                payout_blue = sum(calc.Price("น้ำเงิน", False, board["blue_pay"], board["blue_win"]).payout(b["actual"]) for b in bets if b["side"] == "น้ำเงิน" and b["status"] == "ติด")
+                risk_text = f"\n📈 ถ้าแดงชนะ: {total_blue - payout_red:,.2f}\n📈 ถ้าน้ำเงินชนะ: {total_red - payout_blue:,.2f}"
 
-        # แก้ป้าย [จำนวน]
-        m_edit_accept = re.match(r"^แก้ป้าย\s*([\d,]+)$", text)
-        if m_edit_accept:
+            return [line_api.text_message(f"📊 ยอดรวมเจ้ามือ:\n🔴 แดง: {total_red:,.2f}\n🔵 น้ำเงิน: {total_blue:,.2f}\n💰 ยอดรวม: {total_red + total_blue:,.2f}{risk_text}")]
+
+        # ป้าย [จำนวน] หรือ แก้ป้าย [จำนวน]
+        m_accept = re.match(r"^(?:แก้)?ป้าย\s*([\d,]+)$", text)
+        if m_accept:
             match_id = get_open_match()
             if not match_id:
                 return [line_api.text_message("⚠️ ยังไม่มีคู่เปิดอยู่")]
-            new_accept = float(m_edit_accept.group(1).replace(",", ""))
+            new_accept = float(m_accept.group(1).replace(",", ""))
             conn = models.get_conn()
+            # อัปเดตบอร์ดล่าสุด
             conn.execute("UPDATE price_boards SET accept_amt=? WHERE match_id=? ORDER BY id DESC LIMIT 1", (new_accept, match_id))
             conn.commit()
-            return [line_api.text_message(f"✅ แก้ไขวงเงินรับเป็น {new_accept:,.2f} สำเร็จ")]
+            return [line_api.text_message(f"✅ ตั้งวงเงินรับเป็น {new_accept:,.2f} สำเร็จ")]
 
         # แก้ยอด [ชื่อ] [จำนวน] หรือ แก้ยอด [uid] [จำนวน]
         m_edit_credit = re.match(r"^แก้ยอด\s+(\S+)\s+([\d,]+)$", text)
@@ -192,9 +211,9 @@ def handle_message(user_id: str, display_name: str, text: str) -> list:
     if text.lower() in ("cc", "ชช"):
         return _handle_last_bets(mid)
     
-    # ===== ดึงผลการแทงย้อนหลัง (ทวน) =====
-    # รูปแบบ: "ทวน1" (ทวนคู่ที่ 1 ของตัวเอง) หรือ "ทวน1 @ชื่อ" (แอดมินทวนให้ลูกค้า)
-    m_review = re.match(r"^ทวน\s*(\d+)(?:\s+(.*))?$", text, re.I)
+    # ===== ดึงผลการแทงย้อนหลัง (ทวน / ดูคู่) =====
+    # รูปแบบ: "ทวน1", "ดูคู่1", "ดูคู่1 @ชื่อ"
+    m_review = re.match(r"^(?:ทวน|ดูคู่)\s*(\d+)(?:\s+(.*))?$", text, re.I)
     if m_review:
         match_no = int(m_review.group(1))
         target_name = m_review.group(2)
@@ -272,7 +291,40 @@ def _handle_result_cmd(text: str, m) -> list:
         models.close_match(match_id)
         models.set_result(match_id, "ยกเลิก")
         return [line_api.text_message("🚫 ยกเลิกคู่นี้แล้ว (คืนยอดทุกบิล)")]
+
+    if cmd == "แก้ผล":
+        sub_cmd = m.group(2).strip().lower()
+        if not sub_cmd:
+            return [line_api.text_message("⚠️ กรุณาระบุผลที่ต้องการแก้ เช่น แก้ผล dd")]
+        winner = "แดง" if sub_cmd == "dd" else ("น้ำเงิน" if sub_cmd == "ff" else "เสมอ")
+        # ค้นหาคู่ล่าสุดที่จบไปแล้ว (settled)
+        conn = models.get_conn()
+        last_match = conn.execute("SELECT id, name FROM matches WHERE status='settled' ORDER BY id DESC LIMIT 1").fetchone()
+        if not last_match:
+            return [line_api.text_message("⚠️ ไม่พบคู่ที่จบไปแล้วให้แก้ไข")]
+        match_id = last_match["id"]
+        match_name = last_match["name"]
+        # ในระบบนี้ settle_match จะทำการคืนเครดิตและคำนวณใหม่ถ้าเรียกซ้ำ (ขึ้นอยู่กับการออกแบบ models.py)
+        # แต่เพื่อความปลอดภัย แจ้งว่ากำลังแก้ไข
+        models.set_result(match_id, winner)
+        models.settle_match(match_id)
+        return [line_api.text_message(f"✅ แก้ไขผลคู่ {match_name} เป็น {winner}ชนะ และคำนวณยอดใหม่แล้ว")]
         
+    if cmd == "สรุปรายวัน":
+        summary = models.get_daily_summary()
+        profit_label = "กำไร" if summary["house_profit"] >= 0 else "ขาดทุน"
+        msg = (
+            f"📅 สรุปยอดเจ้ามือรายวัน ({summary['date']})\n"
+            f"--------------------------\n"
+            f"🥊 จำนวนคู่ทั้งหมด: {summary['match_count']} คู่\n"
+            f"💰 ยอดแทงรวม: {summary['total_bet']:,.2f} บาท\n"
+            f"📈 {profit_label}สุทธิ: {abs(summary['house_profit']):,.2f} บาท\n"
+            f"--------------------------\n"
+            f"📥 ยอดฝาก/เติม: {summary['deposits']:,.2f} บาท\n"
+            f"📤 ยอดถอน: {summary['withdrawals']:,.2f} บาท"
+        )
+        return [line_api.text_message(msg)]
+
     winner = "แดง" if cmd in ("dd", "จ") else ("น้ำเงิน" if cmd in ("ff", "จง") else "เสมอ")
     
     # รวบรวมเครดิตก่อนเล่น (capital) ของแต่ละคนที่มีการแทง

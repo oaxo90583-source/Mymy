@@ -387,3 +387,67 @@ def update_latest_board(match_id: int, raw_text: str, mode: str, red_pay: float,
         conn.execute("UPDATE price_boards SET raw_text=?, mode=?, red_pay=?, red_win=?, blue_pay=?, blue_win=?, accept_amt=? WHERE id=?",
                      (raw_text, mode, red_pay, red_win, blue_pay, blue_win, accept_amt, row["id"]))
         conn.commit()
+
+def get_daily_summary(date_str: Optional[str] = None) -> dict:
+    """
+    สรุปยอดรายวันของเจ้ามือ
+    date_str: วันที่ในรูปแบบ 'YYYY-MM-DD' (ถ้าไม่ระบุจะใช้ปัจจุบัน)
+    """
+    if not date_str:
+        date_str = datetime.now().strftime('%Y-%m-%d')
+    
+    conn = get_conn()
+    
+    # 1. ยอดแทงรวม (บิลที่สถานะ 'ติด')
+    total_bet = conn.execute(
+        "SELECT COALESCE(SUM(actual), 0) FROM bets WHERE created_at LIKE ?",
+        (f"{date_str}%",)
+    ).fetchone()[0]
+    
+    # 2. จำนวนคู่ที่แข่งขันวันนี้
+    match_count = conn.execute(
+        "SELECT COUNT(*) FROM matches WHERE created_at LIKE ?",
+        (f"{date_str}%",)
+    ).fetchone()[0]
+    
+    # 3. กำไร/ขาดทุนสุทธิของเจ้ามือ (คำนวณจาก settle_log)
+    # เจ้ามือจะได้เงินจากบิลที่สมาชิก 'แพ้' และเสียเงินจากบิลที่สมาชิก 'ชนะ'
+    # ในระบบนี้:
+    # - ถ้าสมาชิกแพ้: เสียครึ่ง (actual/2) -> เจ้ามือได้กำไร actual/2
+    # - ถ้าสมาชิกชนะ: ได้ payout -> เจ้ามือเสีย payout
+    # - ถ้าเสมอ/ยกเลิก: payout=0 -> เจ้ามือไม่เสียและไม่ได้
+    
+    # ดึงข้อมูลบิลที่ settle แล้ววันนี้
+    settled_bets = conn.execute(
+        "SELECT b.actual, s.payout, s.result "
+        "FROM bets b "
+        "JOIN settle_log s ON b.id = s.bet_id "
+        "WHERE b.created_at LIKE ?",
+        (f"{date_str}%",)
+    ).fetchall()
+    
+    house_profit = 0.0
+    for b in settled_bets:
+        if b["result"] == "ชนะ":
+            # สมาชิกชนะ เจ้ามือเสีย payout
+            house_profit -= float(b["payout"])
+        elif "แพ้" in b["result"]:
+            # สมาชิกแพ้เสียครึ่ง เจ้ามือได้กำไร actual/2
+            house_profit += (float(b["actual"]) / 2.0)
+            
+    # 4. ยอดฝาก/ถอน/เติม วันนี้
+    txns = conn.execute(
+        "SELECT kind, SUM(amount) as total FROM txns WHERE created_at LIKE ? GROUP BY kind",
+        (f"{date_str}%",)
+    ).fetchall()
+    
+    txn_summary = {t["kind"]: t["total"] for t in txns}
+    
+    return {
+        "date": date_str,
+        "total_bet": total_bet,
+        "match_count": match_count,
+        "house_profit": house_profit,
+        "deposits": txn_summary.get("ฝาก", 0.0) + txn_summary.get("เติม", 0.0),
+        "withdrawals": txn_summary.get("ถอน", 0.0)
+    }
