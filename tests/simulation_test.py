@@ -15,11 +15,12 @@ def run_simulation():
     # 1. เริ่มต้นฐานข้อมูล
     models.init_db()
     
-    # 2. สร้างสมาชิกสมมติ
+    # 2. สร้างสมาชิกสมมติ (ใช้ timestamp เพื่อให้ ID ไม่ซ้ำ)
+    ts = int(time.time())
     print("\n1. สร้างสมาชิกและเติมเครดิต...")
-    user1_id = "U_USER_A"
-    user2_id = "U_USER_B"
-    user3_id = "U_USER_C"
+    user1_id = f"U_USER_A_{ts}"
+    user2_id = f"U_USER_B_{ts}"
+    user3_id = f"U_USER_C_{ts}"
     
     mid_a = models.ensure_admin(user1_id) # ให้ A เป็นแอดมินด้วยเพื่อความง่าย
     mid_b = models.new_member(user2_id, "นาย ข")
@@ -90,8 +91,43 @@ def run_simulation():
         # หาข้อมูลเบื้องต้นของบิลนี้
         print(f"   - บิล ID {res['bet_id']}: ฝั่ง {res['side']} | แทง {res['actual']:,.2f} | ผล: {res['result']} | {res['note']}")
 
-    # 6. ดูยอดสรุปเจ้ามือ
-    print("\n5. ตรวจสอบยอดสรุปเจ้ามือรายวัน...")
+    # 6. ทดสอบกรณีผลเสมอ (sm)
+    print("\n5. ทดสอบกรณีผลเสมอ (Draw/SM)...")
+    match_sm = models.new_match("คู่ทดสอบเสมอ")
+    models.adjust_credit(mid_b, 1000) # เติมเงินให้ นาย ข เพิ่ม
+    board_sm = models.add_board(match_sm, "ด2/1", "ต่อไป", calc.Price("แดง", True, 2, 1), None, 1000, False)
+    
+    before_sm = models.get_member_credit(mid_b)
+    print(f"   - นาย ข เครดิตก่อนแทง: {before_sm:,.2f}")
+    models.add_bet(mid_b, match_sm, board_sm, "แดง", 500, 500, False)
+    models.adjust_credit(mid_b, -500)
+    
+    print("   - ประกาศผล: [เสมอ (sm)]")
+    models.set_result(match_sm, "เสมอ")
+    models.settle_match(match_sm)
+    
+    after_sm = models.get_member_credit(mid_b)
+    print(f"   - นาย ข เครดิตหลังสรุปผลเสมอ: {after_sm:,.2f} (ต้องเท่ากับ {before_sm:,.2f})")
+
+    # 7. ทดสอบกรณีการยกเลิกคู่ (ยก)
+    print("\n6. ทดสอบกรณีการยกเลิกคู่ (Cancel/Void)...")
+    match_void = models.new_match("คู่ทดสอบยกเลิก")
+    board_void = models.add_board(match_void, "ง5/3", "รองเงิน", None, calc.Price("น้ำเงิน", False, 5, 3), 1000, False)
+    
+    before_void = models.get_member_credit(mid_c)
+    print(f"   - นาย ค เครดิตก่อนแทง: {before_void:,.2f}")
+    models.add_bet(mid_c, match_void, board_void, "น้ำเงิน", 1000, 1000, False)
+    models.adjust_credit(mid_c, -1000)
+    
+    print("   - ประกาศผล: [ยุติ/ยกเลิก (ยก)]")
+    models.set_result(match_void, "ยุติ")
+    models.settle_match(match_void)
+    
+    after_void = models.get_member_credit(mid_c)
+    print(f"   - นาย ค เครดิตหลังสรุปผลยกเลิก: {after_void:,.2f} (ต้องเท่ากับ {before_void:,.2f})")
+
+    # 8. ดูยอดสรุปเจ้ามือ
+    print("\n7. ตรวจสอบยอดสรุปเจ้ามือรายวัน...")
     summary = models.get_daily_summary()
     profit_label = "กำไร" if summary['house_profit'] >= 0 else "ขาดทุน"
     print(f"   - วันที่: {summary['date']}")
