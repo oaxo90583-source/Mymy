@@ -77,7 +77,7 @@ async def webhook(req: Request, x_line_signature: Optional[str] = Header(None)):
         return {"ok": True}
 
     for ev in payload.events:
-        logger.info("📩 ได้รับ Event type: %s", ev.type)
+        logger.info("📩 ได้รับ Event: %s", ev.model_dump_json())
         if ev.type != "message" or not ev.message:
             continue
         msg = ev.message
