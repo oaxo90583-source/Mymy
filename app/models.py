@@ -116,6 +116,12 @@ CREATE TABLE IF NOT EXISTS keywords (
     media_type TEXT DEFAULT '',
     active INTEGER NOT NULL DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS rooms (
+    room_id TEXT PRIMARY KEY,
+    room_type TEXT NOT NULL,               -- play | finance | admin
+    note TEXT DEFAULT '',
+    updated_at TEXT DEFAULT (datetime('now','localtime'))
+);
 """
 
 
@@ -301,7 +307,7 @@ def settle_match(match_id: int) -> list:
         "SELECT * FROM bets WHERE match_id=? AND status='ติด'", (match_id,)).fetchall()
     out = []
     for b in bets:
-        if winner == "ยุติ":
+        if winner in ("ยกเลิก", "ยุติ"):
             payout, result, note = 0.0, "ยกเลิก", "คืนยอดเต็ม"
             adjust_credit(b["member_id"], float(b["actual"]))
         elif winner == "เสมอ":
@@ -429,6 +435,37 @@ def update_latest_board(match_id: int, raw_text: str, mode: str, red_pay: float,
         conn.execute("UPDATE price_boards SET raw_text=?, mode=?, red_pay=?, red_win=?, blue_pay=?, blue_win=?, accept_amt=? WHERE id=?",
                      (raw_text, mode, red_pay, red_win, blue_pay, blue_win, accept_amt, row["id"]))
         conn.commit()
+
+def set_room_type(room_id: str, room_type: str, note: str = "") -> None:
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO rooms(room_id, room_type, note) VALUES(?,?,?) "
+        "ON CONFLICT(room_id) DO UPDATE SET room_type=excluded.room_type, note=excluded.note, updated_at=datetime('now','localtime')",
+        (room_id, room_type, note))
+    conn.commit()
+
+def get_room_type(room_id: str) -> Optional[str]:
+    conn = get_conn()
+    row = conn.execute("SELECT room_type FROM rooms WHERE room_id=?", (room_id,)).fetchone()
+    return row["room_type"] if row else None
+
+def list_rooms() -> list:
+    conn = get_conn()
+    return [dict(r) for r in conn.execute("SELECT * FROM rooms").fetchall()]
+
+def get_member_match_history(member_id: int, match_id: int) -> list:
+    """ดึงประวัติการแทงของสมาชิกเฉพาะคู่ที่ระบุ"""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT b.*, pb.raw_text, pb.red_pay, pb.red_win, pb.blue_pay, pb.blue_win, s.payout, s.result as settle_result "
+        "FROM bets b "
+        "JOIN price_boards pb ON b.board_id = pb.id "
+        "LEFT JOIN settle_log s ON b.id = s.bet_id "
+        "WHERE b.member_id=? AND b.match_id=? "
+        "ORDER BY b.id ASC",
+        (member_id, match_id)
+    ).fetchall()
+    return [dict(r) for r in rows]
 
 def get_daily_summary(date_str: Optional[str] = None) -> dict:
     """
