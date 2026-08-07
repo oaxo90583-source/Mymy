@@ -30,9 +30,14 @@ app = FastAPI(title="บอทคำนวณมวยพักยก")
 @app.on_event("startup")
 async def _startup():
     models.init_db()
-    if not models.count_keywords():
-        models.seed_keywords_from_json()
-        logger.info("seeded %d keywords", models.count_keywords())
+    count = models.count_keywords()
+    logger.info("Current keywords count: %d", count)
+    if count == 0:
+        logger.info("Database is empty, starting seed process...")
+        # ระบุพาธไฟล์ให้ชัดเจนเพื่อให้แน่ใจว่าหาไฟล์เจอ
+        json_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "assets_keywords.json")
+        n = models.seed_keywords_from_json(json_path)
+        logger.info("Successfully seeded %d keywords from %s", n, json_path)
 
 app.mount("/static", StaticFiles(directory=os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "webui")), name="static")
