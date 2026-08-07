@@ -103,14 +103,17 @@ async def webhook(req: Request, x_line_signature: Optional[str] = Header(None)):
             logger.error("🔥 เกิดข้อผิดพลาดใน bot.handle_message สำหรับ %s: %s", user_id, e, exc_info=True)
             replies = [line_api.text_message("⚠️ เกิดข้อผิดพลาดในการประมวลผลคำสั่ง กรุณาลองใหม่อีกครั้ง")]
 
+        logger.info("🔍 กำลังตรวจสอบการส่งข้อความกลับ: replyToken=%s, replies_count=%d", msg.get("replyToken"), len(replies) if replies else 0)
         if msg.get("replyToken") and replies:
             try:
                 resp = line_api.reply(msg["replyToken"], replies)
                 logger.info("📤 ส่งข้อความกลับ LINE สำเร็จ | Status: %s | Body: %s", resp.status_code, resp.text)
                 if resp.status_code != 200:
-                    logger.error("❌ LINE API ปฏิเสธการส่งข้อความ Status %d: %s", resp.status_code, resp.text)
+                    logger.error("❌ LINE API ปฏิเสธการส่งข้อความ Status %d: %s | Token used: %s...", resp.status_code, resp.text, line_api.TOKEN[:10] if line_api.TOKEN else "None")
             except Exception as e:
                 logger.error("🔥 เกิดข้อผิดพลาดขณะเรียก line_api.reply: %s", e, exc_info=True)
+        else:
+            logger.warning("⚠️ ไม่มีการส่งข้อความกลับเนื่องจาก: replyToken ว่าง หรือ ไม่มีข้อความตอบกลับ")
                 
     return {"ok": True}
 
