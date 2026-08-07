@@ -108,9 +108,36 @@ def parse_price_token(tok: str) -> Optional[Price]:
     m = re.match(rf"^{_RE_NUM}(?:\s*[/.]\s*{_RE_NUM})?\s*$", rest)
     if not m:
         return None
-    pay = float(m.group(1).replace(",", ""))
-    win = float(m.group(2).replace(",", "")) if m.group(2) else 1.0
-    # ตัวบน > ตัวล่าง = ต่อ, ตัวบน <= ตัวล่าง = รอง
+    
+    val1 = m.group(1).replace(",", "")
+    val2 = m.group(2).replace(",", "") if m.group(2) else None
+    
+    # จัดการคีย์ลัดมวยพักยก (52 -> 5/2, 118 -> 11/8, 32 -> 3/2)
+    if not val2:
+        if val1 == "52": val1, val2 = "5", "2"
+        elif val1 == "53": val1, val2 = "5", "3"
+        elif val1 == "54": val1, val2 = "5", "4"
+        elif val1 == "118": val1, val2 = "11", "8"
+        elif val1 == "32": val1, val2 = "3", "2"
+        elif val1 == "74": val1, val2 = "7", "4"
+        elif val1 == "21": val1, val2 = "2", "1"
+        elif val1 == "31": val1, val2 = "3", "1"
+        elif val1 == "41": val1, val2 = "4", "1"
+        elif val1 == "51": val1, val2 = "5", "1"
+        elif val1 == "61": val1, val2 = "6", "1"
+        elif val1 == "71": val1, val2 = "7", "1"
+        elif val1 == "81": val1, val2 = "8", "1"
+        elif val1 == "109": val1, val2 = "10", "9"
+    
+    pay = float(val1)
+    win = float(val2) if val2 else 1.0
+    
+    # ในมวยพักยก: ตัวเลขที่มากกว่าคือฝ่ายต่อ (Fav), ตัวเลขที่น้อยกว่าคือฝ่ายรอง (Underdog)
+    # ถ้า pay > win แสดงว่าเป็นฝ่ายต่อ (เช่น 2/1 -> pay=2, win=1)
+    # ถ้า pay < win แสดงว่าเป็นฝ่ายรอง (เช่น 5/3 แทง 3 ได้ 5 -> pay=3, win=5)
+    # แต่ถ้ามาเป็นโทเค็นเดียว เช่น "ด52" (ต่อ 5/2) -> pay=5, win=2 -> is_fav=True
+    # ถ้ามาเป็น "ง53" (รอง 5/3) -> pay=3, win=5 -> is_fav=False
+    
     is_fav = pay > win
     return Price(side=side, is_fav=is_fav, pay_num=pay, win_num=win)
 

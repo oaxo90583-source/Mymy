@@ -136,14 +136,34 @@ def handle_message(user_id: str, display_name: str, text: str) -> list:
         return [line_api.text_message(_credit_text(mid))]
     if text.lower() == "cc":
         return _handle_last_bets(mid)
+    
+    # ===== ดึงผลการแทงย้อนหลัง (ทวน) =====
+    # รูปแบบ: "ทวน1" (ทวนคู่ที่ 1 ของตัวเอง) หรือ "ทวน1 @ชื่อ" (แอดมินทวนให้ลูกค้า)
+    m_review = re.match(r"^ทวน\s*(\d+)(?:\s+(.*))?$", text, re.I)
+    if m_review:
+        match_no = int(m_review.group(1))
+        target_name = m_review.group(2)
+        return _handle_review_bets(mid, match_no, target_name, admin)
+
     if text.lower() in ("ยก", "ยกเลิก"):
         bid = models.cancel_last_bet(mid, get_open_match())
         return [line_api.text_message("✅ ยกเลิกบิลล่าสุดแล้ว" if bid else "⚠️ ไม่มีบิลให้ยกเลิก")]
 
     # ===== คีย์ลัดทั่วไป (จากคลัง 206 รายการ) =====
-    kw = _keyword_reply(text, mid)
-    if kw:
-        return kw
+    kw_messages = _keyword_reply(text, mid)
+    if kw_messages:
+        # ถ้าเป็นแอดมินส่งคีย์ลัด ตรวจสอบว่าคำตอบของคีย์ลัดนั้นเป็นราคาต่อรองหรือไม่
+        if admin:
+            for msg in kw_messages:
+                if msg.get("type") == "text":
+                    resp_text = msg.get("text", "")
+                    # ลอง parse ราคาจากคำตอบของคีย์เวิร์ด
+                    board = calc.parse_board_from_text(resp_text, require_accept=False)
+                    if board:
+                        # ถ้าเป็นราคา ให้เปิดบอร์ดในระบบด้วย
+                        _handle_board(admin, mid, resp_text, board)
+                        logger.info("✅ เปิดราคาอัตโนมัติจากคีย์เวิร์ด: %s", text)
+        return kw_messages
 
     return [line_api.text_message("ไม่เข้าใจข้อความครับ พิมพ์ \"ช่วยเหลือ\" เพื่อดูคีย์ลัด")]
 
@@ -240,12 +260,20 @@ def _handle_bet(mid: int, text: str, bet, admin: bool) -> list:
 
 
 def _handle_last_bets(mid: int) -> list:
-    rows = models.list_bets(member_id=mid)[:5]
+    rows = models.list_bets(member_id=mid)[:10]
     if not rows:
         return [line_api.text_message("ยังไม่มีบิลแทง")]
-    out = ["📋 บิลล่าสุด 5 รายการ:"]
+    
+    out = ["📋 รายการแทงล่าสุด (เรียลไทม์):"]
+    total_est = 0.0
     for r in rows:
-        out.append(f"- {r['side']} {r['amount']:,.0f} (ติดจริง {r['actual']:,.0f}) [{r['status']}]")
+        status_text = r['status']
+        if r['status'] == 'ติด':
+            # คำนวณยอดได้เสียเบื้องต้น (ถ้ามีผลแล้วจะแสดงผลจริง)
+            status_text = "รอนับผล"
+        out.append(f"- {r['side']} {r['amount']:,.0f} (ติด {r['actual']:,.0f}) [{status_text}]")
+    
+    out.append("")
     out.append(_credit_text(mid))
     return [line_api.text_message("\n".join(out))]
 
@@ -306,3 +334,35 @@ def _help_text() -> str:
         "🔸 เงิน: ฝาก{uid} {จำนวน}, ถอน{uid} {จำนวน}, เติม{uid} {จำนวน}\n"
         "🔸 อื่นๆ: บช/บัญชี = เลขบัญชี, สลิป = ส่งสลิปหลังโอน, งช/ดช = ชิ้นวัด"
     )
+
+def _handle_review_bets(mid: int, match_no: int, target_name: str = None, is_admin: bool = False) -> list:
+    """ดึงประวัติการแทงรายคู่มาทวนให้ดู (เช่น ทวน1)"""
+    matches = models.list_matches()
+    # หาคู่ที่ match_no (เรียงจากเก่าไปใหม่)
+    matches.reverse() 
+    if match_no > len(matches) or match_no <= 0:
+        return [line_api.text_message(f"⚠️ ไม่พบข้อมูลคู่ที่ {match_no}")]
+    
+    match = matches[match_no - 1]
+    target_mid = mid
+    display_label = "ของคุณ"
+    
+    if is_admin and target_name:
+        # แอดมินทวนให้ลูกค้า (ค้นหาจากชื่อแสดงผล)
+        conn = models.get_conn()
+        row = conn.execute("SELECT id, display_name FROM members WHERE display_name LIKE ?", (f"%{target_name}%",)).fetchone()
+        if row:
+            target_mid = row["id"]
+            display_label = f"ของ {row['display_name']}"
+        else:
+            return [line_api.text_message(f"⚠️ ไม่พบสมาชิกชื่อ {target_name}")]
+
+    rows = models.list_bets(match_id=match["id"], member_id=target_mid)
+    if not rows:
+        return [line_api.text_message(f"📋 ไม่พบรายการแทงคู่ที่ {match_no} {display_label}")]
+    
+    out = [f"📋 ประวัติคู่ที่ {match_no} ({match['name']}) {display_label}:"]
+    for r in rows:
+        out.append(f"- {r['side']} {r['amount']:,.0f} (ติดจริง {r['actual']:,.0f}) [{r['status']}]")
+    
+    return [line_api.text_message("\n".join(out))]

@@ -54,6 +54,14 @@ class _LINEEvent(BaseModel):
     message: Optional[dict] = None
     postback: Optional[dict] = None
 
+    @property
+    def group_id(self) -> Optional[str]:
+        return self.source.get("groupId") or self.source.get("roomId")
+
+    @property
+    def user_id(self) -> str:
+        return self.source.get("userId", "")
+
 
 class _LINEPayload(BaseModel):
     events: list[_LINEEvent]
@@ -91,9 +99,10 @@ async def webhook(req: Request, x_line_signature: Optional[str] = Header(None)):
             logger.info("ℹ️ ข้ามข้อความที่ไม่ใช่ข้อความตัวหนังสือ (Type: %s)", msg.get("type"))
             continue
         
-        user_id = ev.source.get("userId", "")
+        user_id = ev.user_id
+        group_id = ev.group_id
         text_content = msg.get("text") or ""
-        logger.info("💬 ข้อความจากผู้ใช้ [User ID: %s]: %s", user_id, text_content)
+        logger.info("💬 ข้อความจาก [User: %s, Group: %s]: %s", user_id, group_id, text_content)
         
         display = text_content[:40]
         try:
