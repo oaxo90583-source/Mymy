@@ -102,17 +102,23 @@ async def webhook(req: Request, x_line_signature: Optional[str] = Header(None)):
         return {"ok": True}
 
     for ev in payload.events:
-        if ev.type != "message" or not ev.message:
-            continue
-        msg = ev.message
-        if msg.get("type") != "text":
-            continue
-        
         user_id = ev.user_id
-        text_content = msg.get("text") or ""
-        logger.info("💬 [%s]: %s", user_id[:8], text_content)
+        group_id = ev.group_id
+        text_content = ""
         
-        display = text_content[:20]
+        if ev.type == "message" and ev.message:
+            msg = ev.message
+            if msg.get("type") == "text":
+                text_content = msg.get("text") or ""
+        elif ev.type == "postback" and ev.postback:
+            text_content = ev.postback.get("data") or ""
+            
+        if not text_content:
+            continue
+            
+        logger.info("💬 [%s] in [%s]: %s", user_id[:8], group_id or "private", text_content)
+        
+        display = "User"
         try:
             prof = line_api.get_profile(user_id)
             display = prof.get("displayName", display)
@@ -120,16 +126,20 @@ async def webhook(req: Request, x_line_signature: Optional[str] = Header(None)):
             pass
             
         try:
-            replies = bot.handle_message(user_id, display, text_content)
+            # ส่ง group_id (roomId/groupId) เข้าไปด้วยเพื่อให้บอทแยกแยะห้องได้
+            replies = bot.handle_message(user_id, display, text_content, room_id=group_id)
         except Exception as e:
             logger.error("🔥 Error: %s", e, exc_info=True)
             replies = [line_api.text_message("⚠️ เกิดข้อผิดพลาด กรุณาลองใหม่อีกครั้ง")]
 
         if ev.replyToken and replies:
-            try:
-                line_api.reply(ev.replyToken, replies)
-            except Exception as e:
-                logger.error("🔥 Reply Error: %s", e)
+            # กรองค่า None ออกจากรายการข้อความ (ถ้ามี)
+            replies = [r for r in replies if r]
+            if replies:
+                try:
+                    line_api.reply(ev.replyToken, replies)
+                except Exception as e:
+                    logger.error("🔥 Reply Error: %s", e)
                 
     return {"ok": True}
 

@@ -77,13 +77,14 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
             models.set_room_type(room_id, "admin", "ห้องสำหรับคุมบอร์ด")
             return [reply_text("✅ ตั้งค่าเป็น [ห้องแอดมิน] เรียบร้อย\n(คุมบอร์ด/ประกาศผล/สรุปยอด/ทวน)")]
 
+    # ===== 0.5 คำสั่งพื้นฐาน (ใช้ได้ทุกห้อง) =====
+    if text.lower() in ("id", "ไอดี"):
+        m = models.get_member_info(mid)
+        code = m["member_code"] if m else "N/A"
+        return [reply_text(f"🆔 ข้อมูลสมาชิกของคุณ\n👤 ชื่อ: {m['display_name']}\n🔢 รหัสลูกค้า: {code}")]
+
     # ===== 1. ห้องฝากถอน (Finance Room) / ส่วนตัว (Private) =====
     if room_type in ("finance", "private"):
-        # เช็คไอดี (id)
-        if text.lower() in ("id", "ไอดี"):
-            m = models.get_member_info(mid)
-            code = m["member_code"] if m else "N/A"
-            return [reply_text(f"🆔 ข้อมูลสมาชิกของคุณ\n👤 ชื่อ: {m['display_name']}\n🔢 รหัสลูกค้า: {code}")]
 
         # เช็คเครดิต (c)
         if text.lower() == "c":
@@ -156,6 +157,11 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
     kw_messages = _keyword_reply(text, mid)
     if kw_messages:
         return kw_messages
+
+    # 5. ข้อความช่วยเหลือสำหรับแอดมิน (กรณีห้องยังไม่ได้ตั้งค่า)
+    if admin and room_id and not room_type:
+        if text in ("ช่วย", "help", "เมนู"):
+            return [reply_text("💡 ห้องนี้ยังไม่ได้ตั้งค่าประเภทห้อง\nกรุณาพิมพ์อย่างใดอย่างหนึ่ง:\n- ตั้งห้องเล่น\n- ตั้งห้องฝากถอน\n- ตั้งห้องแอดมิน")]
 
     # ถ้าไม่ตรงคีย์ใดๆ เลย ให้เงียบ (Strict Matching)
     return []
