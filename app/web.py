@@ -45,6 +45,7 @@ CHANNEL_SECRET = os.environ.get("LINE_CHANNEL_SECRET", "")
 class _LINEEvent(BaseModel):
     type: str
     source: dict
+    replyToken: Optional[str] = None
     message: Optional[dict] = None
     postback: Optional[dict] = None
 
@@ -103,8 +104,8 @@ async def webhook(req: Request, x_line_signature: Optional[str] = Header(None)):
             logger.error("🔥 เกิดข้อผิดพลาดใน bot.handle_message สำหรับ %s: %s", user_id, e, exc_info=True)
             replies = [line_api.text_message("⚠️ เกิดข้อผิดพลาดในการประมวลผลคำสั่ง กรุณาลองใหม่อีกครั้ง")]
 
-        # เข้าถึง replyToken จาก msg ซึ่งเป็น dict ภายใน _LINEEvent
-        reply_token = msg.get("replyToken")
+        # เข้าถึง replyToken จาก ev (ซึ่งเป็น _LINEEvent object)
+        reply_token = ev.replyToken
         logger.info("🔍 กำลังตรวจสอบการส่งข้อความกลับ: replyToken=%s, replies_count=%d", reply_token, len(replies) if replies else 0)
         
         if reply_token and replies:
