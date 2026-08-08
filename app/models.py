@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS members (
     display_name TEXT DEFAULT '',
     credit REAL NOT NULL DEFAULT 0,
     is_admin INTEGER NOT NULL DEFAULT 0,
+    member_type TEXT NOT NULL DEFAULT 'credit',  -- credit | cash (ลูกค้าเงินสดต้องส่งส่ปยิป่อนรับบิล)
     created_at TEXT DEFAULT (datetime('now','localtime'))
 );
 CREATE TABLE IF NOT EXISTS matches (
@@ -149,6 +150,15 @@ def init_db() -> None:
     except sqlite3.OperationalError:
         pass # คอลัมน์อาจจะมีอยู่แล้ว
         
+    conn.commit()
+
+    # Migration: เพิ่มคอลัมน์ member_type (สร้างขึ้นหลัง schema)
+    try:
+        conn.execute("ALTER TABLE members ADD COLUMN member_type TEXT NOT NULL DEFAULT 'credit'")
+        conn.commit()
+    except sqlite3.OperationalError:
+        pass  # คอลัมน์มีอยู่แล้ว
+
     conn.commit()
 
 
@@ -326,6 +336,40 @@ def add_bet(member_id: int, match_id: int, board_id: int, side: str, amount: flo
     return cur.lastrowid
 
 
+def set_member_type(member_id: int, member_type: str) -> None:
+    """กำหนดประเภทลูกค้า: credit (เครดิต) | cash (เงินสด)"""
+    conn = get_conn()
+    mtype = "cash" if member_type == "cash" else "credit"
+    conn.execute("UPDATE members SET member_type=? WHERE id=?", (mtype, member_id))
+    conn.commit()
+
+
+def get_member_type(member_id: int) -> str:
+    """ดึงประเภทลูกค้า: 'credit' | 'cash'"""
+    conn = get_conn()
+    row = conn.execute("SELECT member_type FROM members WHERE id=?", (member_id,)).fetchone()
+    if row and row["member_type"] == "cash":
+        return "cash"
+    return "credit"
+
+
+def cancel_bet_by_id(member_id: int, bet_id: int) -> Optional[dict]:
+    """ยกเลิกระบบบิลใดบิลหนึ่ง (เฉพาะบิลของสมาชิกคนนั้นที่ยังอยู่ในสถานะ 'ติด')
+    ส่งคืนข้อมูลบิลที่ถูกยกเลิก หรือ None ถ้าไม่มีบิล/ไม่ใช่ของตัวเอง/เสร็จผลแล้ว"""
+    conn = get_conn()
+    bet = conn.execute(
+        "SELECT * FROM bets WHERE id=? AND member_id=? AND status='ติด'", (bet_id, member_id)).fetchone()
+    if not bet:
+        return None
+    m = conn.execute("SELECT status FROM matches WHERE id=?", (bet["match_id"],)).fetchone()
+    if m and m["status"] == "settled":
+        return None
+    conn.execute("UPDATE bets SET status='ยกเลิก' WHERE id=?", (bet["id"],))
+    adjust_credit(member_id, float(bet["actual"]))
+    conn.commit()
+    return dict(bet)
+
+
 def cancel_last_bet(member_id: int, match_id: int) -> Optional[int]:
     """ยกเลิกบิลล่าสุดของสมาชิกในคู่นั้น คืนยอดเครดิต"""
     conn = get_conn()
@@ -382,11 +426,13 @@ def settle_match(match_id: int) -> list:
                 pay = float(board["red_pay"] if b["side"] == "แดง" else board["blue_pay"])
                 win = float(board["red_win"] if b["side"] == "แดง" else board["blue_win"])
                 
-                # ตัดสินว่าฝั่งที่แทงเป็นต่อหรือรองในบอร์ดนั้น
-                # ราคาที่น้อยกว่าคือฝั่งต่อ
-                red_val = float(board["red_pay"])
-                blue_val = float(board["blue_pay"])
-                is_fav = (pay <= min(red_val, blue_val))
+                # ตัดสินว่าฝั่งที่แทงเป็นต่อหรือรองในบอร์ดนั้น:
+                # ฝั่งต่อ (fav) = ฝั่งที่จ่ายน้อยกว่า → เปรียบ pay สองฝั่งของบอร์ด
+                # ฝั่งรอง (under) = ฝั่งที่จ่ายมากกว่า
+                if board["red_pay"] and board["blue_pay"] and board["red_pay"] != board["blue_pay"]:
+                    is_fav = pay < float(board["blue_pay"] if b["side"] == "แดง" else board["red_pay"])
+                else:
+                    is_fav = (pay > win)
                 
                 price = Price(b["side"], is_fav, pay, win)
                 payout = round(price.payout(float(b["actual"])), 2)
@@ -487,10 +533,20 @@ def delete_keyword(kw_id: int) -> None:
     conn.execute("DELETE FROM keywords WHERE id=?", (kw_id,))
     conn.commit()
 
-def add_keyword(title: str, keywords: str, response: str) -> int:
+def add_keyword(title: str, keywords: str, response: str, upsert: bool = False) -> int:
+    """เพิ่มคีย์ลัดใหม่ (upsert=True จะแทนที่ค่าเดิมหาก item_id เดิมมีอยู่ แล้วส่งคืน id เดิม)"""
     conn = get_conn()
     import uuid
     item_id = str(uuid.uuid4())
+    if upsert:
+        # ใช้ title เป็นตัวค้นหาเดิม ถ้ามีให้อัปเดตแทนที่ (กัน duplicate โตขึ้นทุก restart)
+        row = conn.execute("SELECT id, item_id FROM keywords WHERE title=?", (title,)).fetchone()
+        if row:
+            conn.execute("UPDATE keywords SET keywords=?, response=?, active=1 WHERE id=?",
+                         (keywords, response, row["id"]))
+            conn.commit()
+            return row["id"]
+        item_id = str(uuid.uuid4())
     cur = conn.execute("INSERT INTO keywords(item_id, title, keywords, response) VALUES(?,?,?,?)",
                        (item_id, title, keywords, response))
     conn.commit()
@@ -535,6 +591,33 @@ def get_member_match_history(member_id: int, match_id: int) -> list:
         (member_id, match_id)
     ).fetchall()
     return [dict(r) for r in rows]
+
+def get_daily_summary_by_date(date_str: str) -> Optional[dict]:
+    """สรุปรายวันตามวันที่ที่ระบุ (รูปแบบ 'YYYY-MM-DD' หรือ 'YYYY-MM-DD %H:%M:%S')
+    ส่งคืนโครงสร้างเดียวกับ get_daily_summary หรือ None ถ้าไม่มีข้อมูล"""
+    conn = get_conn()
+    summary = {
+        "date": date_str, "match_count": 0, "total_bet": 0.0,
+        "house_profit": 0.0, "deposits": 0.0, "withdrawals": 0.0
+    }
+    summary["match_count"] = conn.execute(
+        "SELECT COUNT(*) FROM matches WHERE substr(created_at,1,10)=?", (date_str,)).fetchone()[0]
+    row = conn.execute(
+        "SELECT COALESCE(SUM(actual),0) AS t FROM bets WHERE substr(created_at,1,10)=?", (date_str,)).fetchone()
+    summary["total_bet"] = float(row["t"]) if row else 0.0
+    row = conn.execute(
+        "SELECT COALESCE(SUM(CASE WHEN payout>0 THEN payout ELSE 0 END),0) AS p "
+        "FROM settle_log sl JOIN bets b ON b.id=sl.bet_id WHERE substr(b.created_at,1,10)=?", (date_str,)).fetchone()
+    paid_out = float(row["p"]) if row else 0.0
+    summary["house_profit"] = round(summary["total_bet"] - paid_out, 2)
+    row = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) AS t FROM txns WHERE kind IN ('ฝาก','เติม') AND substr(created_at,1,10)=?", (date_str,)).fetchone()
+    summary["deposits"] = float(row["t"]) if row else 0.0
+    row = conn.execute(
+        "SELECT COALESCE(SUM(amount),0) AS t FROM txns WHERE kind='ถอน' AND substr(created_at,1,10)=?", (date_str,)).fetchone()
+    summary["withdrawals"] = float(row["t"]) if row else 0.0
+    return summary
+
 
 def get_daily_summary(date_str: Optional[str] = None) -> dict:
     """

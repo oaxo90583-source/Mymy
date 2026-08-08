@@ -49,11 +49,14 @@ def parse_price_token(tok: str) -> Optional[Price]:
     else:
         # เคสตัวเลขติดกัน เช่น 52, 53, 32
         if len(rest) == 2:
+            # 2 หลัก → ตัวบน 1 หลัก / ตัวล่าง 1 หลัก (52 = 5/2)
             p1, p2 = float(rest[0]), float(rest[1])
-        elif len(rest) == 3 and rest.startswith("11"):
-            p1, p2 = 11.0, float(rest[2])
+        elif len(rest) == 3:
+            # 3 หลัก → ตัวบน 2 หลัก / ตัวล่าง 1 หลัก (ด121 = 12/1, ด132 = 13/2)
+            p1, p2 = float(rest[:-1]), float(rest[-1])
         else:
-            p1, p2 = float(rest), 1.0
+            # 4 หลักขึ้นไป → ตัวบน 3 หลัก / ตัวล่าง 1 หลัก (ด1212 = 121/2)
+            p1, p2 = float(rest[:-1]), float(rest[-1])
             
     # is_fav จะถูกกำหนดใหม่ใน parse_board_from_text
     return Price(side=side, is_fav=True, pay_num=p1, win_num=p2)
@@ -91,22 +94,24 @@ def parse_board_from_text(text: str, require_accept: bool = False) -> Optional[P
     if not prices or (len(prices) < 2 and accept <= 0 and "ต่อ" not in full and "รอง" not in full):
         return None
     
-    # ตัดสินว่าใครต่อใครรอง (ตัวเลขน้อยกว่าคือต่อ เช่น 2/1 ต่อ, 5/3 รอง)
-    # ในมวยไทย ปกติราคาที่น้อยกว่าจะเป็นฝั่งต่อ
-    vals = [p.pay_num for p in prices]
-    fav_val = min(vals) if vals else 0
-    
+    # ตัดสินว่าใครต่อใครรอง:
+    # ฝั่งต่อ (fav) คือฝั่งที่ "แทงมากได้น้อย" → ตัวบน > ตัวล่าง (เช่น ต่อ 2/1, 5/4, 10/9)
+    # ฝั่งรอง (under) คือฝั่งที่ "แทงน้อยได้มาก" → ตัวบน <= ตัวล่าง (เช่น รอง 5/3, 3/1)
+    # หมายเหตุ: ใช้ pay_num > win_num ไม่ใช่เปรียบเทียบตั้วเลขระหว่างสองฝั่ง
+    # เพราะฝั่งรองอาจมีตัวบนเล็กกว่าฝั่งต่อได้ (เช่น ด52 vs ง31: แดงต่อ 5/2, เงินรอง 3/1)
     red = blue = None
     for p in prices:
-        # ถ้ามีราคาเดียว ให้ดูคำว่า "ต่อ" หรือ "รอง" ในข้อความประกอบ
-        if len(prices) == 1:
-            p.is_fav = ("ต่อ" in full or p.pay_num < 2) # ถ้าเลขน้อยกว่า 2 มักจะเป็นราคาต่อ
-        else:
-            p.is_fav = (p.pay_num == fav_val)
-            
         if p.side == "แดง": red = p
         else: blue = p
-        
+    # ฝั่งต่อ (fav) = ฝั่งที่ต้องจ่ายน้อยกว่า → เปรียบ pay_num สองฝั่ง
+    # ฝั่งรอง (under) = ฝั่งที่จ่ายมากกว่า
+    if red is not None and blue is not None and red.pay_num != blue.pay_num:
+        red.is_fav = red.pay_num < blue.pay_num
+        blue.is_fav = blue.pay_num < red.pay_num
+    else:
+        # ราคาเท่ากันหรือไม่มีครบสองฝั่ง ใช้กฏตัวบน/ตัวล่างแทน
+        for p in prices:
+            p.is_fav = p.pay_num > p.win_num
     return PriceBoard("ต่อไป", red, blue, accept)
 
 def parse_bet(text: str) -> Optional[Tuple[str, float]]:

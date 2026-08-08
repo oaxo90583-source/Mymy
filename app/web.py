@@ -47,8 +47,20 @@ async def _startup():
         {"t": "ด41_กลางอากาศ", "k": "ด41", "r": "กลางอากาศ\n🔴ด 41  ง 21\nรับ4000"}
     ]
     for kw in important_kws:
-        models.add_keyword(kw["t"], kw["k"], kw["r"])
+        models.add_keyword(kw["t"], kw["k"], kw["r"], upsert=True)
     logger.info("Updated important screenshot keywords")
+
+WELCOME_TEXT = (
+    "สวัสดี {display_name} ยินดรับเข้าสู่กลุ่ม! "
+    "⚠️ อ่านกฎกลุ่มก่อนทัก: ห้ามส่งลิงก์โฆษณาค้าขาย/ส่งสแปม "
+    "💡 สอบถาม/ฝาก-ถอน/เติมเครดิต ใช้เมนูด้านล่าง"
+)
+
+SLIP_NOTICE = (
+    "📄 พบลูกค้าส่งรูปสีปเข้ามา "
+    "⚠️ บอทไม่สามารถตรวจสอบความจริงของสีปได้โดยอัตโนมัติ "
+    "แอดมินต้องตรวจสอบกับธนาคารก่อนเติมเครดิต"
+)
 
 app.mount("/static", StaticFiles(directory=os.path.join(
     os.path.dirname(os.path.dirname(__file__)), "webui")), name="static")
@@ -105,14 +117,47 @@ async def webhook(req: Request, x_line_signature: Optional[str] = Header(None)):
         user_id = ev.user_id
         group_id = ev.group_id
         text_content = ""
-        
+
+        # ส่งข้อความต้อนรับแท็กคนเข้ากลุ่ม (LINE เข้าห้อง 30 คน/กลุ่ม/ครั้ง)
+        if ev.type == "memberJoined" and group_id and user_id:
+            display = "ผู้ใช้งานใหม่"
+            try:
+                display = line_api.get_profile(user_id).get("displayName", display)
+            except Exception:
+                pass
+            line_api.push(group_id, [
+                {"type": "text", "text": f"@ ทักทาย {display} ที่เข้าห้องใหม่",
+                 "mention": {"mentionees": [{"index": 0, "length": 1, "userId": user_id}]}}
+            ])
+            continue
+
+        if ev.type == "memberLeft":
+            continue
+
         if ev.type == "message" and ev.message:
             msg = ev.message
             if msg.get("type") == "text":
                 text_content = msg.get("text") or ""
+            elif msg.get("type") in ("image", "sticker", "video", "audio", "file", "location"):
+                # รูปสีป/ไฟล์อื่นๆ: แอดมินไม่ได้อยู่ในห้อง — ต้องส่ง forward ให้แอดมิน
+                if ev.replyToken and group_id:
+                    try:
+                        prof = line_api.get_profile(user_id)
+                        d = prof.get("displayName", "ผู้ใช้")
+                        c = line_api.text_message(f"📎 {d} ส่งรูป{msg.get('type', '')}เข้ามา (แอดมินตรวจสอบสีปเอง)")
+                        c2 = line_api.text_message(f"🆔 LINE ID: {user_id}", user_id)
+                        line_api.reply(ev.replyToken, [c])
+                        admin_ids = [x.strip() for x in
+                                     __import__('os').environ.get("LINE_ADMIN_IDS", "").split(",")
+                                     if x.strip()]
+                        for adm in admin_ids[:3]:
+                            line_api.push(adm, [c, c2])
+                    except Exception as e:
+                        logger.warning("Forward error: %s", e)
+                continue
         elif ev.type == "postback" and ev.postback:
             text_content = ev.postback.get("data") or ""
-            
+
         if not text_content:
             continue
             
