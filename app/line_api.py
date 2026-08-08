@@ -493,3 +493,23 @@ def get_profile(user_id: str, token: str = "") -> dict:
 def upload_base64(base64_data: str, filename: str = "proof.jpg") -> str:
     """อัปโหลดภาพขึ้น cloud เก็บ URL (สำรอง — ใช้ URL ส่วนตัวของ LINE)"""
     return f"data:image/jpeg;base64,{base64_data}"
+
+
+def make_slip_flex(amount: float, target: str) -> dict:
+    """สร้าง Flex Message สำหรับสมาชิกส่งสลิปแล้ว (รอแอดมินตรวจสอบ)"""
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "paddingAll": "12px",
+            "backgroundColor": "#FFF8E1",
+            "contents": [
+                {"type": "text", "text": "📄 ส่งสลิปเตียบยอด", "weight": "bold", "size": "sm", "color": "#F57F17", "align": "center"},
+                {"type": "text", "text": f"จำนวน: {amount:,.0f} บาท — เครือ: {target}", "size": "xs", "color": "#333333", "align": "center", "weight": "bold"},
+                {"type": "text", "text": "⏳ รอแอดมินตรวจสอบเตียบ เครดิตให้ (ตรวจสอบเองไม่ได้อัตโนมัติ)", "size": "xs", "color": "#757575", "align": "center"}
+            ]
+        }
+    }
