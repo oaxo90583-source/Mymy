@@ -26,18 +26,13 @@ def push(user_id: str, messages: list, token: str = "") -> requests.Response:
                          json={"to": user_id, "messages": messages}, timeout=20)
 
 
-def text_message(t: str, user_id: str = None):
-    if not user_id:
-        return {"type": "text", "text": t}
-    
-    # รูปแบบ Mention ของ LINE: ใส่ @[name] ใน text และระบุ mentionee
-    # ใช้สัญลักษณ์พิเศษ (เช่น ช่องว่าง) เป็นตัวแทนของชื่อที่จะถูก Mention
-    mention_char = "@"
-    full_text = f"{mention_char} {t}"
-    return {
-        "type": "text",
-        "text": full_text,
-        "mention": {
+def text_message(t: str, user_id: str = None, quick_replies: list = None):
+    msg = {"type": "text", "text": t}
+    if user_id:
+        # รูปแบบ Mention ของ LINE
+        mention_char = "@"
+        msg["text"] = f"{mention_char} {t}"
+        msg["mention"] = {
             "mentionees": [
                 {
                     "index": 0,
@@ -46,7 +41,14 @@ def text_message(t: str, user_id: str = None):
                 }
             ]
         }
-    }
+    
+    if quick_replies:
+        msg["quickReply"] = {
+            "items": [
+                {"type": "action", "action": qr} for qr in quick_replies
+            ]
+        }
+    return msg
 
 
 def image_message(url: str, preview_url: str = ""):
@@ -334,6 +336,26 @@ def make_wallet_menu_flex() -> dict:
 
 def postback_action(label: str, data: str):
     return {"type": "postback", "label": label, "data": data}
+
+
+def message_action(label: str, text: str):
+    return {"type": "message", "label": label, "text": text}
+
+
+def make_quick_menu(is_admin: bool = False):
+    """สร้างรายการ Quick Reply ปุ่มเล็กๆ ด้านล่าง"""
+    items = [
+        message_action("💰 เช็คเครดิต (c)", "c"),
+        message_action("📊 ยอดได้เสีย (cc)", "cc"),
+        message_action("🆔 ดูไอดี", "ไอดี"),
+    ]
+    if is_admin:
+        items.extend([
+            message_action("📈 ยอดเจ้ามือ", "เจ้ามือ"),
+            message_action("📅 สรุปรายวัน", "สรุปรายวัน"),
+            message_action("🔄 ทวนคู่ 1", "ทวน 1"),
+        ])
+    return items
 
 
 def make_main_menu_flex(is_admin: bool = False) -> dict:

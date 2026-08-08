@@ -84,7 +84,7 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
         return [reply_text(f"🆔 ข้อมูลสมาชิกของคุณ\n👤 ชื่อ: {m['display_name']}\n🔢 รหัสลูกค้า: {code}")]
 
     if text.lower() in ("เมนู", "menu"):
-        return [line_api.flex_message("🥊 Mymy Bot Menu", line_api.make_main_menu_flex(admin))]
+        return [line_api.text_message("🥊 เลือกเมนูคำสั่งที่ต้องการ (ปุ่มเล็กด้านล่าง):", quick_replies=line_api.make_quick_menu(admin))]
 
     # ===== 1. ห้องฝากถอน (Finance Room) / ส่วนตัว (Private) =====
     if room_type in ("finance", "private"):
@@ -93,7 +93,8 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
         if text.lower() == "c":
             m = models.get_member_info(mid)
             code = m["member_code"] if m else "N/A"
-            return [reply_text(f"👤 {m['display_name']} ({code})\n💰 เครดิตคงเหลือ: {m['credit']:,.2f} บาท")]
+            qrs = [line_api.message_action("📊 ดูบิลล่าสุด (cc)", "cc"), line_api.message_action("🆔 ดูไอดี", "ไอดี")]
+            return [line_api.text_message(f"👤 {m['display_name']} ({code})\n💰 เครดิตคงเหลือ: {m['credit']:,.2f} บาท", quick_replies=qrs)]
         
         # ดูยอดได้เสียเรียลไทม์ (cc)
         if text.lower() == "cc":
@@ -168,7 +169,12 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
     # 5. ข้อความช่วยเหลือสำหรับแอดมิน (กรณีห้องยังไม่ได้ตั้งค่า)
     if admin and room_id and not room_type:
         if text in ("ช่วย", "help", "เมนู"):
-            return [reply_text("💡 ห้องนี้ยังไม่ได้ตั้งค่าประเภทห้อง\nกรุณาพิมพ์อย่างใดอย่างหนึ่ง:\n- ตั้งห้องเล่น\n- ตั้งห้องฝากถอน\n- ตั้งห้องแอดมิน")]
+            qrs = [
+                line_api.message_action("🎮 ตั้งห้องเล่น", "ตั้งห้องเล่น"),
+                line_api.message_action("💰 ตั้งห้องฝากถอน", "ตั้งห้องฝากถอน"),
+                line_api.message_action("🛠 ตั้งห้องแอดมิน", "ตั้งห้องแอดมิน")
+            ]
+            return [line_api.text_message("💡 ห้องนี้ยังไม่ได้ตั้งค่าประเภทห้อง\nกรุณาเลือกประเภทห้องจากปุ่มด้านล่าง:", quick_replies=qrs)]
 
     # ถ้าไม่ตรงคีย์ใดๆ เลย ให้เงียบ (Strict Matching)
     return []
@@ -186,7 +192,8 @@ def _handle_realtime_summary(mid: int, line_user_id: str = None) -> list:
     
     m = models.get_member_info(mid)
     out.append(f"\n💰 เครดิตคงเหลือ: {m['credit']:,.2f} บาท")
-    return [line_api.text_message("\n".join(out), line_user_id)]
+    qrs = [line_api.message_action("💰 เช็คเครดิต (c)", "c"), line_api.message_action("🆔 ดูไอดี", "ไอดี")]
+    return [line_api.text_message("\n".join(out), line_user_id, quick_replies=qrs)]
 
 def _handle_house_summary() -> list:
     """แสดงยอดรวมเจ้ามือ (Admin Only)"""
@@ -212,7 +219,8 @@ def _handle_house_summary() -> list:
         payout_blue = sum(p_blue.payout(b["actual"]) for b in bets if b["side"] == "น้ำเงิน" and b["status"] == "ติด")
         risk_text = f"\n📈 ถ้าแดงชนะ: {total_blue - payout_red:,.2f}\n📈 ถ้าน้ำเงินชนะ: {total_red - payout_blue:,.2f}"
 
-    return [line_api.text_message(f"📊 ยอดรวมเจ้ามือ (คู่ {match_id}):\n🔴 แดง: {total_red:,.2f}\n🔵 น้ำเงิน: {total_blue:,.2f}\n💰 ยอดรวม: {total_red + total_blue:,.2f}{risk_text}")]
+    qrs = [line_api.message_action("📅 สรุปรายวัน", "สรุปรายวัน"), line_api.message_action("🔄 ทวนคู่ 1", "ทวน 1")]
+    return [line_api.text_message(f"📊 ยอดรวมเจ้ามือ (คู่ {match_id}):\n🔴 แดง: {total_red:,.2f}\n🔵 น้ำเงิน: {total_blue:,.2f}\n💰 ยอดรวม: {total_red + total_blue:,.2f}{risk_text}", quick_replies=qrs)]
 
 def _handle_set_limit(text: str, m) -> list:
     match_id = get_open_match()
