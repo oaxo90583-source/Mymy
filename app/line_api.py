@@ -336,6 +336,125 @@ def postback_action(label: str, data: str):
     return {"type": "postback", "label": label, "data": data}
 
 
+def make_main_menu_flex(is_admin: bool = False) -> dict:
+    """สร้าง Flex Message เมนูหลัก แยกตามสิทธิ์ผู้ใช้"""
+    contents = [
+        {
+            "type": "text",
+            "text": "🥊 Mymy Bot Menu",
+            "weight": "bold",
+            "size": "md",
+            "color": "#1E1E1E",
+            "align": "center"
+        },
+        {"type": "separator", "margin": "md"}
+    ]
+
+    # เมนูสมาชิก (ทุกคนเห็น)
+    member_section = {
+        "type": "box",
+        "layout": "vertical",
+        "spacing": "sm",
+        "margin": "md",
+        "contents": [
+            {
+                "type": "text",
+                "text": "👤 สำหรับสมาชิก",
+                "size": "xs",
+                "color": "#888888",
+                "weight": "bold"
+            },
+            {
+                "type": "box",
+                "layout": "horizontal",
+                "spacing": "sm",
+                "contents": [
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "color": "#2E7D32",
+                        "height": "sm",
+                        "action": {"type": "message", "label": "เช็คเครดิต (c)", "text": "c"}
+                    },
+                    {
+                        "type": "button",
+                        "style": "primary",
+                        "color": "#1565C0",
+                        "height": "sm",
+                        "action": {"type": "message", "label": "ยอดได้เสีย (cc)", "text": "cc"}
+                    }
+                ]
+            },
+            {
+                "type": "button",
+                "style": "secondary",
+                "height": "sm",
+                "action": {"type": "message", "label": "ดูรหัสลูกค้า (ไอดี)", "text": "ไอดี"}
+            }
+        ]
+    }
+    contents.append(member_section)
+
+    # เมนูแอดมิน (เฉพาะแอดมิน)
+    if is_admin:
+        contents.append({"type": "separator", "margin": "md"})
+        admin_section = {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "margin": "md",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "🛠 สำหรับแอดมิน",
+                    "size": "xs",
+                    "color": "#C62828",
+                    "weight": "bold"
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "spacing": "sm",
+                    "contents": [
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "color": "#E65100",
+                            "height": "sm",
+                            "action": {"type": "message", "label": "ยอดเจ้ามือ", "text": "เจ้ามือ"}
+                        },
+                        {
+                            "type": "button",
+                            "style": "primary",
+                            "color": "#4A148C",
+                            "height": "sm",
+                            "action": {"type": "message", "label": "สรุปรายวัน", "text": "สรุปรายวัน"}
+                        }
+                    ]
+                },
+                {
+                    "type": "button",
+                    "style": "secondary",
+                    "height": "sm",
+                    "action": {"type": "message", "label": "ทวนผลคู่ล่าสุด", "text": "ทวน 1"}
+                }
+            ]
+        }
+        contents.append(admin_section)
+
+    return {
+        "type": "bubble",
+        "size": "kilo",
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "sm",
+            "paddingAll": "12px",
+            "contents": contents
+        }
+    }
+
+
 def get_media_content(message_id: str, token: str = "") -> bytes:
     """โหลดไฟล์ภาพ/วิดีโอที่ผู้ใช้ส่งมา (เช่น สลิป)"""
     r = requests.get(f"{MEDIA_BASE}/message/{message_id}/content", headers=_headers(token), timeout=60)

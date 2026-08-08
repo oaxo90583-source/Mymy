@@ -83,6 +83,9 @@ def handle_message(user_id: str, display_name: str, text: str, room_id: str = No
         code = m["member_code"] if m else "N/A"
         return [reply_text(f"🆔 ข้อมูลสมาชิกของคุณ\n👤 ชื่อ: {m['display_name']}\n🔢 รหัสลูกค้า: {code}")]
 
+    if text.lower() in ("เมนู", "menu"):
+        return [line_api.flex_message("🥊 Mymy Bot Menu", line_api.make_main_menu_flex(admin))]
+
     # ===== 1. ห้องฝากถอน (Finance Room) / ส่วนตัว (Private) =====
     if room_type in ("finance", "private"):
 
